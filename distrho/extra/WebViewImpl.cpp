@@ -21,21 +21,52 @@
 # error bad usage
 #endif
 
+#define WEBVIEW_USING_CHOC 1
+
+#ifndef WEBVIEW_USING_CHOC
+# define WEBVIEW_USING_CHOC 0
+#elif WEBVIEW_USING_CHOC && !defined(DISTRHO_OS_WINDOWS)
+# undef WEBVIEW_USING_CHOC
+# define WEBVIEW_USING_CHOC 0
+#endif
+
+#ifdef DISTRHO_OS_MAC
+# undef WEBVIEW_USING_MACOS_WEBKIT
+# define WEBVIEW_USING_MACOS_WEBKIT 1
+#else
+# undef WEBVIEW_USING_MACOS_WEBKIT
+# define WEBVIEW_USING_MACOS_WEBKIT 0
+#endif
+
+#if defined(HAVE_X11) && !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
+# undef WEBVIEW_USING_X11_IPC
+# define WEBVIEW_USING_X11_IPC 1
+#else
+# undef WEBVIEW_USING_X11_IPC
+# define WEBVIEW_USING_X11_IPC 0
+#endif
+
+#if WEBVIEW_USING_CHOC
+# define WC_ERR_INVALID_CHARS 0
+# include "../CHOC/gui/choc_WebView.h"
+#elif WEBVIEW_USING_MACOS_WEBKIT
+# include <Cocoa/Cocoa.h>
+# include <WebKit/WebKit.h>
+#elif WEBVIEW_USING_X11_IPC
 // #define QT_NO_VERSION_TAGGING
 // #include <QtCore/QChar>
 // #include <QtCore/QPoint>
 // #include <QtCore/QSize>
 // #undef signals
-
-#include "ChildProcess.hpp"
-#include "String.hpp"
-
-#include <clocale>
-#include <cstdio>
-#include <dlfcn.h>
-#include <functional>
-#include <linux/limits.h>
-#include <X11/Xlib.h>
+# include "ChildProcess.hpp"
+# include "String.hpp"
+# include <clocale>
+# include <cstdio>
+# include <dlfcn.h>
+# include <functional>
+# include <linux/limits.h>
+# include <X11/Xlib.h>
+#endif
 
 #ifdef WEBVIEW_DGL_NAMESPACE
 START_NAMESPACE_DGL
@@ -47,14 +78,20 @@ START_NAMESPACE_DISTRHO
 // -----------------------------------------------------------------------------------------------------------
 
 struct WebViewData {
+#if defined(DISTRHO_OS_MAC)
+#elif WEBVIEW_USING_CHOC
+    choc::ui::WebView* webview;
+#elif WEBVIEW_USING_X11_IPC
     ChildProcess p;
     ::Display* display;
     ::Window childWindow;
     ::Window ourWindow;
+#endif
 };
 
 // -----------------------------------------------------------------------------------------------------------
 
+#if WEBVIEW_USING_X11_IPC
 static void getFilenameFromFunctionPtr(char filename[PATH_MAX], const void* const ptr)
 {
     Dl_info info = {};
@@ -76,6 +113,7 @@ static void getFilenameFromFunctionPtr(char filename[PATH_MAX], const void* cons
         std::strncpy(filename, info.dli_fname, PATH_MAX - 1);
     }
 }
+#endif
 
 WebViewHandle addWebView(const uintptr_t parentWindowId,
                          const int x,
@@ -84,6 +122,33 @@ WebViewHandle addWebView(const uintptr_t parentWindowId,
                          const uint height,
                          const double scaleFactor)
 {
+#if defined(DISTRHO_OS_MAC)
+#elif WEBVIEW_USING_CHOC
+    std::unique_ptr<choc::ui::WebView> webview = std::make_unique<choc::ui::WebView>();
+    DISTRHO_SAFE_ASSERT_RETURN(webview->loadedOK(), nullptr);
+
+    const HWND handle = static_cast<HWND>(webview->getViewHandle());
+    DISTRHO_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
+
+    webview->navigate("https://mastodon.falktx.com/");
+
+    LONG_PTR flags = GetWindowLongPtr(handle, -16);
+    flags = (flags & ~WS_POPUP) | WS_CHILD;
+    SetWindowLongPtr(handle, -16, flags);
+
+    SetParent(handle, reinterpret_cast<HWND>(parentWindowId));
+    SetWindowPos(handle, nullptr,
+                 x * scaleFactor,
+                 y * scaleFactor,
+                 (width - x) * scaleFactor,
+                 (height - y) * scaleFactor,
+                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    ShowWindow(handle, SW_SHOW);
+
+    WebViewData* const wvdata = new WebViewData();
+    wvdata->webview = webview.release();
+    return wvdata;
+#elif WEBVIEW_USING_X11_IPC
     char ldlinux[PATH_MAX] = {};
     getFilenameFromFunctionPtr(ldlinux, dlsym(nullptr, "_rtld_global"));
 
@@ -134,21 +199,39 @@ WebViewHandle addWebView(const uintptr_t parentWindowId,
     delete[] envp;
 
     return handle;
+#endif
+
+    return nullptr;
 }
 
 void destroyWebView(const WebViewHandle handle)
 {
+#if defined(DISTRHO_OS_MAC)
+#elif WEBVIEW_USING_CHOC
+    delete handle->webview;
+    delete handle;
+#elif WEBVIEW_USING_X11_IPC
     XCloseDisplay(handle->display);
     delete handle;
+#endif
 }
 
 void reloadWebView(const WebViewHandle handle, uint)
 {
+#if defined(DISTRHO_OS_MAC)
+#elif WEBVIEW_USING_CHOC
+#elif WEBVIEW_USING_X11_IPC
     handle->p.signal(SIGUSR1);
+#endif
 }
 
 void resizeWebView(const WebViewHandle handle, int x, int y, uint width, uint height)
 {
+#if defined(DISTRHO_OS_MAC)
+#elif WEBVIEW_USING_CHOC
+    const HWND hwnd = static_cast<HWND>(handle->webview->getViewHandle());
+    SetWindowPos(hwnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+#elif WEBVIEW_USING_X11_IPC
     if (handle->childWindow == 0)
     {
         ::Window rootWindow, parentWindow;
@@ -167,7 +250,10 @@ void resizeWebView(const WebViewHandle handle, int x, int y, uint width, uint he
 
     XMoveResizeWindow(handle->display, handle->childWindow, x, y, width, height);
     XFlush(handle->display);
+#endif
 }
+
+#if WEBVIEW_USING_X11_IPC
 
 // -----------------------------------------------------------------------------------------------------------
 
@@ -571,6 +657,8 @@ int dpf_webview_start(int /* argc */, char** /* argv[] */)
 
 // --------------------------------------------------------------------------------------------------------------------
 
+#endif // WEBVIEW_USING_X11_IPC
+
 #ifdef WEBVIEW_DGL_NAMESPACE
 END_NAMESPACE_DGL
 #else
@@ -580,6 +668,3 @@ END_NAMESPACE_DISTRHO
 #undef WEBVIEW_DISTRHO_NAMESPACE
 #undef WEBVIEW_DGL_NAMESPACE
 #undef WEBVIEW_NAMESPACE
-
-#undef fileBrowserSetPathNamespaced
-#undef fileBrowserSetPathFuncName

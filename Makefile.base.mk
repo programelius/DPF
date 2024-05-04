@@ -901,6 +901,7 @@ mingw32:
 		AR=i686-w64-mingw32-ar \
 		CC=i686-w64-mingw32-gcc \
 		CXX=i686-w64-mingw32-g++ \
+		EXE_WRAPPER=wine \
 		PKG_CONFIG=/usr/bin/false \
 		PKG_CONFIG_PATH=/NOT
 
@@ -909,6 +910,7 @@ mingw64:
 		AR=x86_64-w64-mingw32-ar \
 		CC=x86_64-w64-mingw32-gcc \
 		CXX=x86_64-w64-mingw32-g++ \
+		EXE_WRAPPER=wine \
 		PKG_CONFIG=/usr/bin/false \
 		PKG_CONFIG_PATH=/NOT
 

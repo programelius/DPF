@@ -32,6 +32,7 @@ examples: dgl
 	$(MAKE) all -C examples/Parameters
 	$(MAKE) all -C examples/SendNote
 	$(MAKE) all -C examples/States
+	$(MAKE) all -C examples/WebMeters
 ifeq ($(HAVE_CAIRO),true)
 	$(MAKE) all -C examples/CairoUI
 endif

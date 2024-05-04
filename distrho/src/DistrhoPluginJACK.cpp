@@ -965,6 +965,11 @@ int main(int argc, char* argv[])
 {
     USE_NAMESPACE_DISTRHO;
 
+   #ifdef DISTRHO_OS_WINDOWS
+    OleInitialize(nullptr);
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+   #endif
+
     initSignalHandler();
 
    #ifndef STATIC_BUILD
@@ -1168,6 +1173,11 @@ int main(int argc, char* argv[])
         ip.ki.dwFlags = KEYEVENTF_KEYUP; // KEYEVENTF_KEYUP for key release
         SendInput(1, &ip, sizeof(INPUT));
     }
+   #endif
+
+   #ifdef DISTRHO_OS_WINDOWS
+    CoUninitialize();
+    OleUninitialize();
    #endif
 
     return 0;

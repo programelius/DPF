@@ -238,6 +238,12 @@ endif
 
 ifeq ($(UI_TYPE),web)
 DGL_FLAGS += -DDGL_WEB -DHAVE_DGL
+ifeq ($(MACOS),true)
+DGL_LIBS  += -framework WebKit
+else ifeq ($(WINDOWS),true)
+# DGL_FLAGS += -std=gnu++17
+DGL_LIBS  += -lole32 -luuid
+endif
 DGL_LIB    = $(DGL_BUILD_DIR)/libdgl-web.a
 HAVE_DGL   = true
 endif
@@ -480,6 +486,9 @@ $(DGL_BUILD_DIR)/libdgl-stub.a: $(DGL_POSSIBLE_DEPS)
 
 $(DGL_BUILD_DIR)/libdgl-vulkan.a: $(DGL_POSSIBLE_DEPS)
 	$(MAKE) -C $(DPF_PATH)/dgl vulkan
+
+$(DGL_BUILD_DIR)/libdgl-web.a: $(DGL_POSSIBLE_DEPS)
+	$(MAKE) -C $(DPF_PATH)/dgl web
 
 # ---------------------------------------------------------------------------------------------------------------------
 
