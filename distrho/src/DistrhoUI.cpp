@@ -53,6 +53,16 @@ END_NAMESPACE_DISTRHO
 # include "../extra/FileBrowserDialogImpl.cpp"
 #endif
 
+#if DISTRHO_UI_USE_WEBVIEW && !defined(DISTRHO_OS_MAC)
+# define DISTRHO_WEBVIEW_HPP_INCLUDED
+# define WEBVIEW_NAMESPACE DISTRHO_NAMESPACE
+# define WEBVIEW_DISTRHO_NAMESPACE
+START_NAMESPACE_DISTRHO
+# include "../extra/WebViewImpl.hpp"
+END_NAMESPACE_DISTRHO
+# include "../extra/WebViewImpl.cpp"
+#endif
+
 #if DISTRHO_PLUGIN_HAS_EXTERNAL_UI
 # if defined(DISTRHO_OS_WINDOWS)
 #  include <winsock2.h>
