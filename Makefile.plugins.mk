@@ -239,6 +239,7 @@ endif
 ifeq ($(UI_TYPE),web)
 DGL_FLAGS += -DDGL_WEB -DHAVE_DGL
 ifeq ($(MACOS),true)
+# BUILD_CXX_FLAGS += -std=gnu++17
 DGL_LIBS  += -framework WebKit
 else ifeq ($(WINDOWS),true)
 # DGL_FLAGS += -std=gnu++17

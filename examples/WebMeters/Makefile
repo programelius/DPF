@@ -21,6 +21,7 @@ FILES_UI  = \
 # --------------------------------------------------------------
 # Do some magic
 
+# MACOS_NO_DEAD_STRIP = true
 UI_TYPE = web
 include ../../Makefile.plugins.mk
 

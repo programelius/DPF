@@ -14,45 +14,45 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if !defined(DISTRHO_WEBVIEW_HPP_INCLUDED) && !defined(DGL_WEBVIEW_HPP_INCLUDED)
+#if !defined(DISTRHO_WEB_VIEW_HPP_INCLUDED) && !defined(DGL_WEB_VIEW_HPP_INCLUDED)
 # error bad include
 #endif
-#if !defined(WEBVIEW_DISTRHO_NAMESPACE) && !defined(WEBVIEW_DGL_NAMESPACE)
+#if !defined(WEB_VIEW_DISTRHO_NAMESPACE) && !defined(WEB_VIEW_DGL_NAMESPACE)
 # error bad usage
 #endif
 
-#define WEBVIEW_USING_CHOC 1
+#define WEB_VIEW_USING_CHOC 0
 
-#ifndef WEBVIEW_USING_CHOC
-# define WEBVIEW_USING_CHOC 0
-#elif WEBVIEW_USING_CHOC && !defined(DISTRHO_OS_WINDOWS)
-# undef WEBVIEW_USING_CHOC
-# define WEBVIEW_USING_CHOC 0
+#ifndef WEB_VIEW_USING_CHOC
+# define WEB_VIEW_USING_CHOC 0
+#elif WEB_VIEW_USING_CHOC && !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
+# undef WEB_VIEW_USING_CHOC
+# define WEB_VIEW_USING_CHOC 0
 #endif
 
-#ifdef DISTRHO_OS_MAC
-# undef WEBVIEW_USING_MACOS_WEBKIT
-# define WEBVIEW_USING_MACOS_WEBKIT 1
+#if defined(DISTRHO_OS_MAC) && !WEB_VIEW_USING_CHOC
+# undef WEB_VIEW_USING_MACOS_WEBKIT
+# define WEB_VIEW_USING_MACOS_WEBKIT 1
 #else
-# undef WEBVIEW_USING_MACOS_WEBKIT
-# define WEBVIEW_USING_MACOS_WEBKIT 0
+# undef WEB_VIEW_USING_MACOS_WEBKIT
+# define WEB_VIEW_USING_MACOS_WEBKIT 0
 #endif
 
-#if defined(HAVE_X11) && !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
-# undef WEBVIEW_USING_X11_IPC
-# define WEBVIEW_USING_X11_IPC 1
+#if defined(HAVE_X11) && defined(DISTRHO_OS_LINUX)
+# undef WEB_VIEW_USING_X11_IPC
+# define WEB_VIEW_USING_X11_IPC 1
 #else
-# undef WEBVIEW_USING_X11_IPC
-# define WEBVIEW_USING_X11_IPC 0
+# undef WEB_VIEW_USING_X11_IPC
+# define WEB_VIEW_USING_X11_IPC 0
 #endif
 
-#if WEBVIEW_USING_CHOC
+#if WEB_VIEW_USING_CHOC
 # define WC_ERR_INVALID_CHARS 0
 # include "../CHOC/gui/choc_WebView.h"
-#elif WEBVIEW_USING_MACOS_WEBKIT
+#elif WEB_VIEW_USING_MACOS_WEBKIT
 # include <Cocoa/Cocoa.h>
 # include <WebKit/WebKit.h>
-#elif WEBVIEW_USING_X11_IPC
+#elif WEB_VIEW_USING_X11_IPC
 // #define QT_NO_VERSION_TAGGING
 // #include <QtCore/QChar>
 // #include <QtCore/QPoint>
@@ -68,7 +68,122 @@
 # include <X11/Xlib.h>
 #endif
 
-#ifdef WEBVIEW_DGL_NAMESPACE
+// -----------------------------------------------------------------------------------------------------------
+
+#if WEB_VIEW_USING_MACOS_WEBKIT
+
+#define MACRO_NAME2(a, b, c) a ## b ## c
+#define MACRO_NAME(a, b, c) MACRO_NAME2(a, b, c)
+
+#define WEB_VIEW_DELEGATE_CLASS_NAME \
+    MACRO_NAME(WebViewDelegate_, _, DISTRHO_NAMESPACE)
+
+@interface WEB_VIEW_DELEGATE_CLASS_NAME : NSObject<WKUIDelegate>
+@end
+
+@implementation WEB_VIEW_DELEGATE_CLASS_NAME
+
+- (void)webView:(WKWebView*)webview
+    runJavaScriptAlertPanelWithMessage:(NSString*)message
+                      initiatedByFrame:(WKFrameInfo*)frame
+                     completionHandler:(void (^)(void))completionHandler
+{
+	NSAlert* const alert = [[NSAlert alloc] init];
+	[alert addButtonWithTitle:@"OK"];
+    [alert setInformativeText:message];
+	[alert setMessageText:@"Alert"];
+
+    dispatch_async(dispatch_get_main_queue(), ^
+    {
+        [alert beginSheetModalForWindow:[webview window]
+                      completionHandler:^(NSModalResponse)
+        {
+            completionHandler();
+            [alert release];
+        }];
+    });
+}
+
+- (void)webView:(WKWebView*)webview
+    runJavaScriptConfirmPanelWithMessage:(NSString*)message
+                        initiatedByFrame:(WKFrameInfo*)frame
+                       completionHandler:(void (^)(BOOL))completionHandler
+{
+	NSAlert* const alert = [[NSAlert alloc] init];
+	[alert addButtonWithTitle:@"OK"];
+	[alert addButtonWithTitle:@"Cancel"];
+    [alert setInformativeText:message];
+	[alert setMessageText:@"Confirm"];
+
+    dispatch_async(dispatch_get_main_queue(), ^
+    {
+        [alert beginSheetModalForWindow:[webview window]
+                      completionHandler:^(NSModalResponse result)
+        {
+            completionHandler(result == NSAlertFirstButtonReturn);
+            [alert release];
+        }];
+    });
+}
+
+- (void)webView:(WKWebView*)webview
+    runJavaScriptTextInputPanelWithPrompt:(NSString*)prompt
+                              defaultText:(NSString*)defaultText
+                         initiatedByFrame:(WKFrameInfo*)frame
+                        completionHandler:(void (^)(NSString*))completionHandler
+{
+    NSTextField* const input = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 250, 30)];
+    [input setStringValue:defaultText];
+
+	NSAlert* const alert = [[NSAlert alloc] init];
+    [alert setAccessoryView:input];
+    [alert addButtonWithTitle:@"OK"];
+    [alert addButtonWithTitle:@"Cancel"];
+    [alert setInformativeText:prompt];
+    [alert setMessageText: @"Prompt"];
+
+    dispatch_async(dispatch_get_main_queue(), ^
+    {
+        [alert beginSheetModalForWindow:[webview window]
+                      completionHandler:^(NSModalResponse result)
+        {
+            [input validateEditing];
+            completionHandler(result == NSAlertFirstButtonReturn ? [input stringValue] : nil);
+            [alert release];
+        }];
+    });
+}
+
+- (void)webView:(WKWebView*)webview
+    runOpenPanelWithParameters:(WKOpenPanelParameters*)params
+              initiatedByFrame:(WKFrameInfo*)frame
+             completionHandler:(void (^)(NSArray<NSURL*>*))completionHandler
+{
+    NSOpenPanel* const panel = [[NSOpenPanel alloc] init];
+
+    [panel setAllowsMultipleSelection:[params allowsMultipleSelection]];
+    // [panel setAllowedFileTypes:(NSArray<NSString*>*)[params _allowedFileExtensions]];
+    [panel setCanChooseDirectories:[params allowsDirectories]];
+    [panel setCanChooseFiles:![params allowsDirectories]];
+
+    dispatch_async(dispatch_get_main_queue(), ^
+    {
+        [panel beginSheetModalForWindow:[webview window]
+                      completionHandler:^(NSModalResponse result)
+        {
+            completionHandler(result == NSModalResponseOK ? [panel URLs] : nil);
+            [panel release];
+        }];
+    });
+}
+
+@end
+
+#endif // WEB_VIEW_USING_MACOS_WEBKIT
+
+// -----------------------------------------------------------------------------------------------------------
+
+#ifdef WEB_VIEW_DGL_NAMESPACE
 START_NAMESPACE_DGL
 using DISTRHO_NAMESPACE::String;
 #else
@@ -78,20 +193,69 @@ START_NAMESPACE_DISTRHO
 // -----------------------------------------------------------------------------------------------------------
 
 struct WebViewData {
-#if defined(DISTRHO_OS_MAC)
-#elif WEBVIEW_USING_CHOC
-    choc::ui::WebView* webview;
-#elif WEBVIEW_USING_X11_IPC
+   #if WEB_VIEW_USING_CHOC
+    choc::ui::WebView* const webview;
+   #elif WEB_VIEW_USING_MACOS_WEBKIT
+    NSView* const view;
+    WKWebView* const webview;
+    NSURLRequest* const urlreq;
+    WEB_VIEW_DELEGATE_CLASS_NAME* const delegate;
+   #elif WEB_VIEW_USING_X11_IPC
     ChildProcess p;
     ::Display* display;
     ::Window childWindow;
     ::Window ourWindow;
-#endif
+   #endif
 };
 
 // -----------------------------------------------------------------------------------------------------------
 
-#if WEBVIEW_USING_X11_IPC
+#if WEB_VIEW_USING_CHOC
+static std::optional<choc::ui::WebView::Options::Resource> fetch_resource(const std::string& path)
+{
+    d_stdout("requested path %s", path.c_str());
+
+    if (path == "/")
+    {
+        const std::string html = R"PREFIX(
+<html>
+<head>
+    <style>
+    html, body { background: black; background-image: url(img.svg); }
+    </style>
+    <script>
+    function parameterChanged(index, value) {
+        console.log("parameterChanged received", index, value);
+    }
+    </script>
+</head>
+<body>
+hello world!
+</body>
+</html>
+)PREFIX";
+        const std::vector<uint8_t> data(html.begin(), html.end());
+        return choc::ui::WebView::Options::Resource{ data, "text/html" };
+    }
+    if (path == "/img.svg")
+    {
+        const std::string html = R"PREFIX(<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- based on https://github.com/n0jo/rackwindows/blob/master/res/components/rw_knob_large_dark.svg -->
+<svg width="47px" height="47px" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
+    <g id="knobLDark">
+        <path id="path3832" d="M23.521,45.109c-7.674,0 -3.302,3.9 -10.224,0.498c-6.922,-3.403 -1.202,-2.341 -5.997,-8.501c-4.795,-6.159 -5.059,-0.201 -6.763,-7.827c-1.704,-7.625 1.043,-2.42 2.76,-10.046c1.718,-7.626 -2.998,-4.102 1.797,-10.221c4.795,-6.12 2.51,-0.673 9.432,-4.035c6.921,-3.363 1.321,-4.977 8.995,-4.977c7.675,0 2.087,1.574 8.996,4.977c6.909,3.402 4.636,-2.045 9.432,4.035c4.795,6.078 0.079,2.689 1.796,10.26c1.717,7.572 4.465,2.422 2.761,10.048c-1.704,7.625 -1.982,1.708 -6.763,7.827c-4.782,6.119 0.924,5.057 -5.998,8.46c-6.921,3.402 -2.549,-0.498 -10.224,-0.498Z" style="fill:#ccc;fill-rule:nonzero;"/>
+    </g>
+</svg>
+
+)PREFIX";
+        const std::vector<uint8_t> data(html.begin(), html.end());
+        return choc::ui::WebView::Options::Resource{ data, "image/svg+xml" };
+    }
+
+    return {};
+}
+#elif WEB_VIEW_USING_X11_IPC
 static void getFilenameFromFunctionPtr(char filename[PATH_MAX], const void* const ptr)
 {
     Dl_info info = {};
@@ -115,40 +279,99 @@ static void getFilenameFromFunctionPtr(char filename[PATH_MAX], const void* cons
 }
 #endif
 
-WebViewHandle addWebView(const uintptr_t parentWindowId,
-                         const int x,
-                         const int y,
-                         const uint width,
-                         const uint height,
-                         const double scaleFactor)
+// -----------------------------------------------------------------------------------------------------------
+
+WebViewHandle webViewCreate(const uintptr_t windowId,
+                            const uint initialWidth,
+                            const uint initialHeight,
+                            const double scaleFactor,
+                            const WebViewOptions& options)
 {
-#if defined(DISTRHO_OS_MAC)
-#elif WEBVIEW_USING_CHOC
-    std::unique_ptr<choc::ui::WebView> webview = std::make_unique<choc::ui::WebView>();
+#if WEB_VIEW_USING_CHOC
+    choc::ui::WebView::Options woptions;
+    woptions.acceptsFirstMouseClick = true;
+    woptions.enableDebugMode = true;
+    woptions.fetchResource = fetch_resource;
+
+    std::unique_ptr<choc::ui::WebView> webview = std::make_unique<choc::ui::WebView>(woptions);
     DISTRHO_SAFE_ASSERT_RETURN(webview->loadedOK(), nullptr);
 
-    const HWND handle = static_cast<HWND>(webview->getViewHandle());
+    void* const handle = webview->getViewHandle();
     DISTRHO_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
 
-    webview->navigate("https://mastodon.falktx.com/");
+    choc::ui::WebView* const www = webview.get();
+    webview->bind("setParameterValue", [www](const choc::value::ValueView&) -> choc::value::Value {
+        static int pp = 0;
+        std::string toeval = "typeof(parameterChanged) === 'function' && parameterChanged(";
+        toeval += std::to_string(++pp);
+        toeval += ", 0.1)";
+        d_stdout("param received | %s", toeval.c_str());
+        www->evaluateJavascript(toeval);
+        return {};
+    });
 
-    LONG_PTR flags = GetWindowLongPtr(handle, -16);
+   #ifdef DISTRHO_OS_MAC
+    NSView* const view = static_cast<NSView*>(handle);
+
+    [reinterpret_cast<NSView*>(windowId) addSubview:view];
+    [view setFrame:NSMakeRect(options.offset.x,
+                              options.offset.y,
+                              DISTRHO_UI_DEFAULT_WIDTH - options.offset.x,
+                              DISTRHO_UI_DEFAULT_HEIGHT - options.offset.y)];
+   #else
+    const HWND hwnd = static_cast<HWND>(handle);
+
+    LONG_PTR flags = GetWindowLongPtr(hwnd, -16);
     flags = (flags & ~WS_POPUP) | WS_CHILD;
-    SetWindowLongPtr(handle, -16, flags);
+    SetWindowLongPtr(hwnd, -16, flags);
 
-    SetParent(handle, reinterpret_cast<HWND>(parentWindowId));
-    SetWindowPos(handle, nullptr,
-                 x * scaleFactor,
-                 y * scaleFactor,
-                 (width - x) * scaleFactor,
-                 (height - y) * scaleFactor,
+    SetParent(hwnd, reinterpret_cast<HWND>(windowId));
+    SetWindowPos(hwnd, nullptr,
+                 options.offset.x * scaleFactor,
+                 options.offset.y * scaleFactor,
+                 (initialWidth - options.offset.x) * scaleFactor,
+                 (initialHeight - options.offset.y) * scaleFactor,
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-    ShowWindow(handle, SW_SHOW);
+    ShowWindow(hwnd, SW_SHOW);
+   #endif
 
-    WebViewData* const wvdata = new WebViewData();
-    wvdata->webview = webview.release();
-    return wvdata;
-#elif WEBVIEW_USING_X11_IPC
+    return new WebViewData{webview.release()};
+#elif WEB_VIEW_USING_MACOS_WEBKIT
+    NSView* const view = reinterpret_cast<NSView*>(windowId);
+
+    const CGRect rect = CGRectMake(options.offset.x,
+                                   options.offset.y,
+                                   (initialWidth - options.offset.x),
+                                   (initialHeight - options.offset.y));
+
+    WKPreferences* const prefs = [[WKPreferences alloc] init];
+    [prefs setValue:@YES forKey:@"developerExtrasEnabled"];
+
+    WKWebViewConfiguration* const config = [[WKWebViewConfiguration alloc] init];
+    config.preferences = prefs;
+
+    WKWebView* const webview = [[WKWebView alloc] initWithFrame:rect
+                                                  configuration:config];
+    [view addSubview:webview];
+
+    WEB_VIEW_DELEGATE_CLASS_NAME* const delegate = [[WEB_VIEW_DELEGATE_CLASS_NAME alloc] init];
+    webview.UIDelegate = delegate;
+
+    const char* const url = "https://mastodon.falktx.com/";
+    NSString* const nsurl = [[NSString alloc] initWithBytes:url
+                                                     length:std::strlen(url)
+                                                   encoding:NSUTF8StringEncoding];
+    NSURLRequest* const urlreq = [[NSURLRequest alloc] initWithURL: [NSURL URLWithString: nsurl]];
+
+    [webview loadRequest:urlreq];
+    [webview setHidden:NO];
+
+    [nsurl release];
+    [config release];
+    [prefs release];
+
+    return new WebViewData{view, webview, urlreq, delegate};
+#elif WEB_VIEW_USING_X11_IPC
     char ldlinux[PATH_MAX] = {};
     getFilenameFromFunctionPtr(ldlinux, dlsym(nullptr, "_rtld_global"));
 
@@ -179,8 +402,8 @@ WebViewHandle addWebView(const uintptr_t parentWindowId,
         }
 
         envp[e++] = strdup("LANG=en_US.UTF-8");
-        envp[e++] = ("DPF_WEBVIEW_SCALE_FACTOR=" + String(scaleFactor)).getAndReleaseBuffer();
-        envp[e++] = ("DPF_WEBVIEW_WIN_ID=" +String(parentWindowId)).getAndReleaseBuffer();
+        envp[e++] = ("DPF_WEB_VIEW_SCALE_FACTOR=" + String(scaleFactor)).getAndReleaseBuffer();
+        envp[e++] = ("DPF_WEB_VIEW_WIN_ID=" +String(windowId)).getAndReleaseBuffer();
 
         for (uint i = e; i < envsize + 5; ++i)
             envp[e++] = nullptr;
@@ -189,7 +412,7 @@ WebViewHandle addWebView(const uintptr_t parentWindowId,
     WebViewData* const handle = new WebViewData();
     handle->display = display;
     handle->childWindow = 0;
-    handle->ourWindow = parentWindowId;
+    handle->ourWindow = windowId;
 
     const char* const args[] = { ldlinux, filename, "dpf-ld-linux-webview", nullptr };
     handle->p.start(args, envp);
@@ -201,37 +424,64 @@ WebViewHandle addWebView(const uintptr_t parentWindowId,
     return handle;
 #endif
 
+    // maybe unused
+    (void)windowId;
+    (void)initialWidth;
+    (void)initialHeight;
+    (void)scaleFactor;
+    (void)options;
     return nullptr;
 }
 
-void destroyWebView(const WebViewHandle handle)
+void webViewDestroy(const WebViewHandle handle)
 {
-#if defined(DISTRHO_OS_MAC)
-#elif WEBVIEW_USING_CHOC
+   #if WEB_VIEW_USING_CHOC
     delete handle->webview;
     delete handle;
-#elif WEBVIEW_USING_X11_IPC
+   #elif WEB_VIEW_USING_MACOS_WEBKIT
+    [handle->webview setHidden:YES];
+    [handle->webview removeFromSuperview];
+    [handle->urlreq release];
+    [handle->delegate release];
+    delete handle;
+   #elif WEB_VIEW_USING_X11_IPC
     XCloseDisplay(handle->display);
     delete handle;
-#endif
+   #endif
+
+    // maybe unused
+    (void)handle;
 }
 
-void reloadWebView(const WebViewHandle handle, uint)
+void webViewReload(const WebViewHandle handle)
 {
-#if defined(DISTRHO_OS_MAC)
-#elif WEBVIEW_USING_CHOC
-#elif WEBVIEW_USING_X11_IPC
+   #if WEB_VIEW_USING_CHOC
+   #elif WEB_VIEW_USING_MACOS_WEBKIT
+    [handle->webview loadRequest:handle->urlreq];
+   #elif WEB_VIEW_USING_X11_IPC
     handle->p.signal(SIGUSR1);
-#endif
+   #endif
+
+    // maybe unused
+    (void)handle;
 }
 
-void resizeWebView(const WebViewHandle handle, int x, int y, uint width, uint height)
+void webViewResize(const WebViewHandle handle, const uint width, const uint height, const double scaleFactor)
 {
-#if defined(DISTRHO_OS_MAC)
-#elif WEBVIEW_USING_CHOC
+  #if WEB_VIEW_USING_CHOC
+   #ifdef DISTRHO_OS_MAC
+    NSView* const view = static_cast<NSView*>(handle->webview->getViewHandle());
+    [view setFrameSize:NSMakeSize(width, height)];
+   #else
     const HWND hwnd = static_cast<HWND>(handle->webview->getViewHandle());
-    SetWindowPos(hwnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
-#elif WEBVIEW_USING_X11_IPC
+    SetWindowPos(hwnd, nullptr, 0, 0,
+                 width * scaleFactor,
+                 height * scaleFactor,
+                 SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
+   #endif
+  #elif WEB_VIEW_USING_MACOS_WEBKIT
+    [handle->webview setFrameSize:NSMakeSize(width, height)];
+  #elif WEB_VIEW_USING_X11_IPC
     if (handle->childWindow == 0)
     {
         ::Window rootWindow, parentWindow;
@@ -250,10 +500,16 @@ void resizeWebView(const WebViewHandle handle, int x, int y, uint width, uint he
 
     XMoveResizeWindow(handle->display, handle->childWindow, x, y, width, height);
     XFlush(handle->display);
-#endif
+  #endif
+
+    // maybe unused
+    (void)handle;
+    (void)width;
+    (void)height;
+    (void)scaleFactor;
 }
 
-#if WEBVIEW_USING_X11_IPC
+#if WEB_VIEW_USING_X11_IPC
 
 // -----------------------------------------------------------------------------------------------------------
 
@@ -622,10 +878,10 @@ int dpf_webview_start(int /* argc */, char** /* argv[] */)
 {
     uselocale(newlocale(LC_NUMERIC_MASK, "C", nullptr));
 
-    const char* const envScaleFactor = std::getenv("DPF_WEBVIEW_SCALE_FACTOR");
+    const char* const envScaleFactor = std::getenv("DPF_WEB_VIEW_SCALE_FACTOR");
     DISTRHO_SAFE_ASSERT_RETURN(envScaleFactor != nullptr, 1);
 
-    const char* const envWinId = std::getenv("DPF_WEBVIEW_WIN_ID");
+    const char* const envWinId = std::getenv("DPF_WEB_VIEW_WIN_ID");
     DISTRHO_SAFE_ASSERT_RETURN(envWinId != nullptr, 1);
 
     const Window winId = std::strtoul(envWinId, nullptr, 10);
@@ -657,14 +913,17 @@ int dpf_webview_start(int /* argc */, char** /* argv[] */)
 
 // --------------------------------------------------------------------------------------------------------------------
 
-#endif // WEBVIEW_USING_X11_IPC
+#endif // WEB_VIEW_USING_X11_IPC
 
-#ifdef WEBVIEW_DGL_NAMESPACE
+#ifdef WEB_VIEW_DGL_NAMESPACE
 END_NAMESPACE_DGL
 #else
 END_NAMESPACE_DISTRHO
 #endif
 
-#undef WEBVIEW_DISTRHO_NAMESPACE
-#undef WEBVIEW_DGL_NAMESPACE
-#undef WEBVIEW_NAMESPACE
+#undef MACRO_NAME
+#undef MACRO_NAME2
+
+#undef WEB_VIEW_DISTRHO_NAMESPACE
+#undef WEB_VIEW_DGL_NAMESPACE
+#undef WEB_VIEW_NAMESPACE

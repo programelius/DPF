@@ -377,6 +377,42 @@ uintptr_t UI::getNextWindowId() noexcept
 #endif // DISTRHO_PLUGIN_HAS_EXTERNAL_UI
 
 /* ------------------------------------------------------------------------------------------------------------
+ * DSP/Plugin Callbacks */
+
+void UI::parameterChanged(const uint32_t index, const float value)
+{
+#if DISTRHO_UI_WEB_VIEW
+#else
+    // unused
+    (void)index;
+    (void)value;
+#endif
+}
+
+#if DISTRHO_PLUGIN_WANT_PROGRAMS
+void UI::programLoaded(const uint32_t index)
+{
+#if DISTRHO_UI_WEB_VIEW
+#else
+    // unused
+    (void)index;
+#endif
+}
+#endif
+
+#if DISTRHO_PLUGIN_WANT_STATE
+void UI::stateChanged(const char* const key, const char* const value)
+{
+#if DISTRHO_UI_WEB_VIEW
+#else
+    // unused
+    (void)key;
+    (void)value;
+#endif
+}
+#endif
+
+/* ------------------------------------------------------------------------------------------------------------
  * DSP/Plugin Callbacks (optional) */
 
 void UI::sampleRateChanged(double)

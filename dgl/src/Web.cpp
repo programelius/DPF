@@ -29,16 +29,15 @@ START_NAMESPACE_DGL
 
 WebViewWidget::WebViewWidget(Window& windowToMapTo)
     : TopLevelWidget(windowToMapTo),
-      webview(addWebView(windowToMapTo.getNativeWindowHandle(),
-                         0, 0,
-                         windowToMapTo.getWidth(),
-                         windowToMapTo.getHeight(),
-                         windowToMapTo.getScaleFactor())) {}
+      webview(webViewCreate(windowToMapTo.getNativeWindowHandle(),
+                            windowToMapTo.getWidth(),
+                            windowToMapTo.getHeight(),
+                            windowToMapTo.getScaleFactor())) {}
 
 WebViewWidget::~WebViewWidget()
 {
     if (webview != nullptr)
-        destroyWebView(webview);
+        webViewDestroy(webview);
 }
 
 void WebViewWidget::onResize(const ResizeEvent& ev)
@@ -46,7 +45,7 @@ void WebViewWidget::onResize(const ResizeEvent& ev)
     TopLevelWidget::onResize(ev);
 
     if (webview != nullptr)
-        resizeWebView(webview, 0, 0, ev.size.getWidth(), ev.size.getHeight());
+        webViewResize(webview, ev.size.getWidth(), ev.size.getHeight(), getScaleFactor());
 }
 
 // -----------------------------------------------------------------------

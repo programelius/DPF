@@ -14,8 +14,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef DGL_WEBVIEW_HPP_INCLUDED
-#define DGL_WEBVIEW_HPP_INCLUDED
+#ifndef DGL_WEB_VIEW_HPP_INCLUDED
+#define DGL_WEB_VIEW_HPP_INCLUDED
 
 #include "TopLevelWidget.hpp"
 
@@ -27,6 +27,8 @@ struct WebViewData;
 typedef WebViewData* WebViewHandle;
 
 END_NAMESPACE_DISTRHO
+
+// --------------------------------------------------------------------------------------------------------------------
 
 START_NAMESPACE_DGL
 
@@ -51,7 +53,7 @@ protected:
 
 private:
     const DISTRHO_NAMESPACE::WebViewHandle webview;
-    void onDisplay() {}
+    void onDisplay() override {}
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WebViewWidget)
 };
@@ -60,4 +62,4 @@ private:
 
 END_NAMESPACE_DGL
 
-#endif // DGL_WEBVIEW_HPP_INCLUDED
+#endif // DGL_WEB_VIEW_HPP_INCLUDED

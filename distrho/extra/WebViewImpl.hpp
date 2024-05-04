@@ -14,7 +14,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if !defined(DISTRHO_WEBVIEW_HPP_INCLUDED) && !defined(DGL_WEBVIEW_HPP_INCLUDED)
+#if !defined(DISTRHO_WEB_VIEW_HPP_INCLUDED) && !defined(DGL_WEB_VIEW_HPP_INCLUDED)
 # error bad include
 #endif
 
@@ -24,11 +24,63 @@
 struct WebViewData;
 typedef WebViewData* WebViewHandle;
 
-// -----------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
-WebViewHandle addWebView(uintptr_t parentWinId, int x, int y, uint width, uint height,double scaleFactor);
-void destroyWebView(WebViewHandle webview);
-void reloadWebView(WebViewHandle webview, uint port);
-void resizeWebView(WebViewHandle webview, int x, int y, uint width, uint height);
+/**
+  Web view options, for customizing web view details.
+*/
+struct WebViewOptions {
+   /**
+      Position offset, for cases of mixing regular widgets with web views.
+    */
+    struct PositionOffset {
+      /** Horizontal offset */
+      int x;
 
-// -----------------------------------------------------------------------------------------------------------
+      /** Vertical offset */
+      int y;
+
+      /** Constructor for default values */
+      PositionOffset() : x(0), y(0) {}
+    } offset;
+
+    /** Constructor for default values */
+    WebViewOptions()
+      : offset() {}
+};
+
+// --------------------------------------------------------------------------------------------------------------------
+
+/**
+  Create a new web view.
+
+  The web view will be added on top of an existing platform-specific view/window.
+  This means it will draw on top of whatever is below it,
+  something to take into consideration if mixing regular widgets with web views.
+
+  @p windowId:    The native window id to attach this view to (X11 Window, HWND or NSView*)
+  @p scaleFactor: Scale factor to use (only used on X11)
+  @p options:     Extra options, optional
+*/
+WebViewHandle webViewCreate(uintptr_t windowId,
+                            uint initialWidth,
+                            uint initialHeight,
+                            double scaleFactor,
+                            const WebViewOptions& options = WebViewOptions());
+
+/**
+  Destroy the web view, handle must not be used afterwards.
+*/
+void webViewDestroy(WebViewHandle webview);
+
+/**
+  Reload the web view current page.
+*/
+void webViewReload(WebViewHandle webview);
+
+/**
+  Resize the web view.
+*/
+void webViewResize(WebViewHandle webview, uint width, uint height, double scaleFactor);
+
+// --------------------------------------------------------------------------------------------------------------------
