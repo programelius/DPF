@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "extra/Sleep.hpp"
+#include "Sleep.hpp"
 #include "Time.hpp"
 
 #ifdef DISTRHO_OS_WINDOWS

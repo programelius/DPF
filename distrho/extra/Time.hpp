@@ -17,7 +17,7 @@
 #ifndef DISTRHO_TIME_HPP_INCLUDED
 #define DISTRHO_TIME_HPP_INCLUDED
 
-#include "DistrhoUtils.hpp"
+#include "../DistrhoUtils.hpp"
 
 #ifdef DISTRHO_OS_WINDOWS
 # include <winsock2.h>
