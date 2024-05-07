@@ -48,6 +48,10 @@ public:
     */
     ~WebViewWidget() override;
 
+    // webview methods
+    void evaluateJS(const char* js);
+    void reload();
+
 protected:
     void onResize(const ResizeEvent& ev) override;
 

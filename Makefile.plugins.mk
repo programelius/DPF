@@ -247,6 +247,7 @@ DGL_LIBS  += -lole32 -luuid
 endif
 DGL_LIB    = $(DGL_BUILD_DIR)/libdgl-web.a
 HAVE_DGL   = true
+USE_WEBVIEW = true
 endif
 
 ifeq ($(UI_TYPE),external)
@@ -263,7 +264,7 @@ HAVE_DGL   = false
 endif
 endif
 
-ifeq ($(HAVE_DGL)$(LINUX)$(USING_WEBVIEW),truetruetrue)
+ifeq ($(HAVE_DGL)$(LINUX)$(USE_WEBVIEW),truetruetrue)
 DGL_LIB_SHARED = $(shell $(CC) -print-file-name=Scrt1.o)
 endif
 

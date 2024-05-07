@@ -74,6 +74,11 @@ WebViewHandle webViewCreate(uintptr_t windowId,
 void webViewDestroy(WebViewHandle webview);
 
 /**
+  Evaluate/run JavaScript on the web view.
+*/
+void webViewEvaluateJS(WebViewHandle webview, const char* js);
+
+/**
   Reload the web view current page.
 */
 void webViewReload(WebViewHandle webview);

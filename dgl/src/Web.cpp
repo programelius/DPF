@@ -18,6 +18,7 @@
 #include "../Color.hpp"
 
 #include "../distrho/extra/WebView.hpp"
+#include "../distrho/extra/Sleep.hpp"
 
 #include "SubWidgetPrivateData.hpp"
 #include "TopLevelWidgetPrivateData.hpp"
@@ -32,12 +33,28 @@ WebViewWidget::WebViewWidget(Window& windowToMapTo)
       webview(webViewCreate(windowToMapTo.getNativeWindowHandle(),
                             windowToMapTo.getWidth(),
                             windowToMapTo.getHeight(),
-                            windowToMapTo.getScaleFactor())) {}
+                            windowToMapTo.getScaleFactor()))
+{
+    // FIXME wait till process is here?
+    d_msleep(200);
+}
 
 WebViewWidget::~WebViewWidget()
 {
     if (webview != nullptr)
         webViewDestroy(webview);
+}
+
+void WebViewWidget::evaluateJS(const char* const js)
+{
+    if (webview != nullptr)
+        webViewEvaluateJS(webview, js);
+}
+
+void WebViewWidget::reload()
+{
+    if (webview != nullptr)
+        webViewReload(webview);
 }
 
 void WebViewWidget::onResize(const ResizeEvent& ev)

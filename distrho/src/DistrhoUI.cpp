@@ -382,6 +382,7 @@ uintptr_t UI::getNextWindowId() noexcept
 void UI::parameterChanged(const uint32_t index, const float value)
 {
 #if DISTRHO_UI_WEB_VIEW
+    evaluateJS("typeof(parameterChanged) === 'function' && parameterChanged(0, 0);");
 #else
     // unused
     (void)index;
@@ -393,6 +394,7 @@ void UI::parameterChanged(const uint32_t index, const float value)
 void UI::programLoaded(const uint32_t index)
 {
 #if DISTRHO_UI_WEB_VIEW
+    evaluateJS("typeof(programLoaded) === 'function' && programLoaded(0);");
 #else
     // unused
     (void)index;
@@ -404,6 +406,7 @@ void UI::programLoaded(const uint32_t index)
 void UI::stateChanged(const char* const key, const char* const value)
 {
 #if DISTRHO_UI_WEB_VIEW
+    evaluateJS("typeof(stateChanged) === 'function' && stateChanged('', '');");
 #else
     // unused
     (void)key;
@@ -415,8 +418,14 @@ void UI::stateChanged(const char* const key, const char* const value)
 /* ------------------------------------------------------------------------------------------------------------
  * DSP/Plugin Callbacks (optional) */
 
-void UI::sampleRateChanged(double)
+void UI::sampleRateChanged(const double sampleRate)
 {
+#if DISTRHO_UI_WEB_VIEW
+    evaluateJS("typeof(sampleRateChanged) === 'function' && sampleRateChanged(0);");
+#else
+    // unused
+    (void)sampleRate;
+#endif
 }
 
 /* ------------------------------------------------------------------------------------------------------------

@@ -21,6 +21,10 @@
 # error bad usage
 #endif
 
+// #include <gtk/gtk.h>
+// #include <gtk/gtkx.h>
+// #include <webkit2/webkit2.h>
+
 #define WEB_VIEW_USING_CHOC 0
 
 #ifndef WEB_VIEW_USING_CHOC
@@ -453,6 +457,19 @@ void webViewDestroy(const WebViewHandle handle)
     (void)handle;
 }
 
+void webViewEvaluateJS(const WebViewHandle handle, const char* const js)
+{
+   #if WEB_VIEW_USING_CHOC
+   #elif WEB_VIEW_USING_MACOS_WEBKIT
+   #elif WEB_VIEW_USING_X11_IPC
+    handle->p.signal(SIGUSR2);
+   #endif
+
+    // maybe unused
+    (void)handle;
+    (void)js;
+}
+
 void webViewReload(const WebViewHandle handle)
 {
    #if WEB_VIEW_USING_CHOC
@@ -513,7 +530,9 @@ void webViewResize(const WebViewHandle handle, const uint width, const uint heig
 
 // -----------------------------------------------------------------------------------------------------------
 
+static std::function<void(const char* js)> evaluateFn;
 static std::function<void()> reloadFn;
+static std::function<void()> terminateFn;
 
 // -----------------------------------------------------------------------------------------------------------
 
@@ -521,9 +540,14 @@ struct GtkContainer;
 struct GtkPlug;
 struct GtkWidget;
 struct GtkWindow;
+struct JSCValue;
+struct WebKitJavascriptResult;
 struct WebKitSettings;
+struct WebKitUserContentManager;
 struct WebKitWebView;
+typedef int gboolean;
 
+#define G_CALLBACK(p) reinterpret_cast<void*>(p)
 #define GTK_CONTAINER(p) reinterpret_cast<GtkContainer*>(p)
 #define GTK_PLUG(p) reinterpret_cast<GtkPlug*>(p)
 #define GTK_WINDOW(p) reinterpret_cast<GtkWindow*>(p)
@@ -554,6 +578,30 @@ struct WebKitWebView;
 // -----------------------------------------------------------------------------------------------------------
 // gtk3 variant
 
+static int gtk_js_cb(WebKitUserContentManager*, WebKitJavascriptResult* const result, void* const arg)
+{
+    void* const lib = static_cast<void*>(arg);
+    DISTRHO_SAFE_ASSERT_RETURN(lib != nullptr, false);
+
+    using g_free_t = void (*)(void*);
+    using jsc_value_to_string_t = char* (*)(JSCValue*);
+    using webkit_javascript_result_get_js_value_t = JSCValue* (*)(WebKitJavascriptResult*);
+
+    CSYM(g_free_t, g_free)
+    CSYM(jsc_value_to_string_t, jsc_value_to_string)
+    CSYM(webkit_javascript_result_get_js_value_t, webkit_javascript_result_get_js_value)
+
+    JSCValue* const value = webkit_javascript_result_get_js_value(result);
+    DISTRHO_SAFE_ASSERT_RETURN(value != nullptr, false);
+
+    char* const string = jsc_value_to_string(value);
+    DISTRHO_SAFE_ASSERT_RETURN(string != nullptr, false);
+
+    d_stdout("js call received with data '%s'", string);
+    g_free(string);
+    return 0;
+}
+
 static bool gtk3(Display* const display,
                  const Window winId,
                  const uint x,
@@ -568,35 +616,56 @@ static bool gtk3(Display* const display,
         (lib = dlopen("libwebkit2gtk-4.0.so", RTLD_NOW|RTLD_GLOBAL)) == nullptr)
         return false;
 
+    using g_signal_connect_data_t = ulong (*)(void*, const char*, void*, void*, void*, int);
     using gdk_set_allowed_backends_t = void (*)(const char*);
     using gtk_container_add_t = void (*)(GtkContainer*, GtkWidget*);
-    using gtk_init_check_t = bool (*)(int*, char***);
+    using gtk_init_check_t = gboolean (*)(int*, char***);
     using gtk_main_t = void (*)();
+    using gtk_main_quit_t = void (*)();
     using gtk_plug_get_id_t = Window (*)(GtkPlug*);
     using gtk_plug_new_t = GtkWidget* (*)(Window);
     using gtk_widget_show_all_t = void (*)(GtkWidget*);
     using gtk_window_move_t = void (*)(GtkWindow*, int, int);
     using gtk_window_set_default_size_t = void (*)(GtkWindow*, int, int);
     using webkit_settings_new_t = WebKitSettings* (*)();
+    using webkit_settings_set_enable_developer_extras_t = void (*)(WebKitSettings*, gboolean);
+    using webkit_settings_set_enable_write_console_messages_to_stdout_t = void (*)(WebKitSettings*, gboolean);
     using webkit_settings_set_hardware_acceleration_policy_t = void (*)(WebKitSettings*, int);
-    using webkit_settings_set_javascript_can_access_clipboard_t = void (*)(WebKitSettings*, bool);
+    using webkit_settings_set_javascript_can_access_clipboard_t = void (*)(WebKitSettings*, gboolean);
+    using webkit_user_content_manager_register_script_message_handler_t = gboolean (*)(WebKitUserContentManager*, const char*);
+    using webkit_web_view_evaluate_javascript_t = void* (*)(WebKitWebView*, const char*, ssize_t, const char*, const char*, void*, void*, void*);
+    using webkit_web_view_get_user_content_manager_t = WebKitUserContentManager* (*)(WebKitWebView*);
     using webkit_web_view_load_uri_t = void (*)(WebKitWebView*, const char*);
     using webkit_web_view_new_with_settings_t = GtkWidget* (*)(WebKitSettings*);
+    using webkit_web_view_run_javascript_t = void* (*)(WebKitWebView*, const char*, void*, void*, void*);
+    using webkit_web_view_set_background_color_t = void (*)(WebKitWebView*, const double*);
 
+    CSYM(g_signal_connect_data_t, g_signal_connect_data)
     CSYM(gdk_set_allowed_backends_t, gdk_set_allowed_backends)
     CSYM(gtk_container_add_t, gtk_container_add)
     CSYM(gtk_init_check_t, gtk_init_check)
     CSYM(gtk_main_t, gtk_main)
+    CSYM(gtk_main_quit_t, gtk_main_quit)
     CSYM(gtk_plug_get_id_t, gtk_plug_get_id)
     CSYM(gtk_plug_new_t, gtk_plug_new)
     CSYM(gtk_widget_show_all_t, gtk_widget_show_all)
     CSYM(gtk_window_move_t, gtk_window_move)
     CSYM(gtk_window_set_default_size_t, gtk_window_set_default_size)
     CSYM(webkit_settings_new_t, webkit_settings_new)
+    CSYM(webkit_settings_set_enable_developer_extras_t, webkit_settings_set_enable_developer_extras)
+    CSYM(webkit_settings_set_enable_write_console_messages_to_stdout_t, webkit_settings_set_enable_write_console_messages_to_stdout)
     CSYM(webkit_settings_set_hardware_acceleration_policy_t, webkit_settings_set_hardware_acceleration_policy)
     CSYM(webkit_settings_set_javascript_can_access_clipboard_t, webkit_settings_set_javascript_can_access_clipboard)
+    CSYM(webkit_user_content_manager_register_script_message_handler_t, webkit_user_content_manager_register_script_message_handler)
+    CSYM(webkit_web_view_get_user_content_manager_t, webkit_web_view_get_user_content_manager)
     CSYM(webkit_web_view_load_uri_t, webkit_web_view_load_uri)
     CSYM(webkit_web_view_new_with_settings_t, webkit_web_view_new_with_settings)
+    CSYM(webkit_web_view_set_background_color_t, webkit_web_view_set_background_color)
+
+    // special case for legacy API handling
+    webkit_web_view_evaluate_javascript_t webkit_web_view_evaluate_javascript = reinterpret_cast<webkit_web_view_evaluate_javascript_t>(dlsym(nullptr, "webkit_web_view_evaluate_javascript"));
+    webkit_web_view_run_javascript_t webkit_web_view_run_javascript = reinterpret_cast<webkit_web_view_run_javascript_t>(dlsym(nullptr, "webkit_web_view_run_javascript"));
+    DISTRHO_SAFE_ASSERT_RETURN(webkit_web_view_evaluate_javascript != nullptr || webkit_web_view_run_javascript != nullptr, false);
 
     const int gdkScale = std::fmod(scaleFactor, 1.0) >= 0.75
                        ? static_cast<int>(scaleFactor + 0.5)
@@ -639,10 +708,25 @@ static bool gtk3(Display* const display,
     webkit_settings_set_javascript_can_access_clipboard(settings, true);
     webkit_settings_set_hardware_acceleration_policy(settings, 2 /* WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER */);
 
+    // if (debug)
+    {
+        webkit_settings_set_enable_developer_extras(settings, true);
+        webkit_settings_set_enable_write_console_messages_to_stdout(settings, true);
+    }
+
     GtkWidget* const webview = webkit_web_view_new_with_settings(settings);
     DISTRHO_SAFE_ASSERT_RETURN(webview != nullptr, false);
 
-    webkit_web_view_load_uri(WEBKIT_WEB_VIEW (webview), url);
+    const double color[] = {49.0/255, 54.0/255, 59.0/255, 1};
+    webkit_web_view_set_background_color(WEBKIT_WEB_VIEW(webview), color);
+
+    if (WebKitUserContentManager* const manager = webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(webview)))
+    {
+        g_signal_connect_data(manager, "script-message-received::external", G_CALLBACK(gtk_js_cb), lib, nullptr, 0);
+        webkit_user_content_manager_register_script_message_handler(manager, "external");
+    }
+
+    webkit_web_view_load_uri(WEBKIT_WEB_VIEW(webview), url);
 
     gtk_container_add(GTK_CONTAINER(window), webview);
 
@@ -652,11 +736,30 @@ static bool gtk3(Display* const display,
     XMapWindow(display, wid);
     XFlush(display);
 
+    evaluateFn = [=](const char* const js){
+        if (webkit_web_view_evaluate_javascript != nullptr)
+            webkit_web_view_evaluate_javascript(WEBKIT_WEB_VIEW(webview), js, -1,
+                                                nullptr, nullptr, nullptr, nullptr, nullptr);
+        else
+            webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(webview), js, nullptr, nullptr, nullptr);
+    };
+
     reloadFn = [=](){
-        webkit_web_view_load_uri(WEBKIT_WEB_VIEW (webview), url);
+        webkit_web_view_load_uri(WEBKIT_WEB_VIEW(webview), url);
+    };
+
+    terminateFn = [=](){
+        d_stdout("terminateFn");
+        static bool quit = true;
+        if (quit)
+        {
+            quit = false;
+            gtk_main_quit();
+        }
     };
 
     gtk_main();
+    d_stdout("quit");
 
     dlclose(lib);
     return true;
@@ -755,6 +858,10 @@ static bool qt5webengine(const Window winId, const double scaleFactor, const cha
 
     reloadFn = [=](){
         QWebEngineView_setUrl(webview, *qurl);
+    };
+
+    terminateFn = [=](){
+        // TODO
     };
 
     QApplication_exec();
@@ -857,6 +964,10 @@ static bool qt6webengine(const Window winId, const double scaleFactor, const cha
         QWebEngineView_setUrl(webview, *qurl);
     };
 
+    terminateFn = [=](){
+        // TODO
+    };
+
     QApplication_exec();
 
     dlclose(lib);
@@ -869,9 +980,19 @@ static bool qt6webengine(const Window winId, const double scaleFactor, const cha
 
 static void signalHandler(const int sig)
 {
-    DISTRHO_SAFE_ASSERT_RETURN(sig == SIGUSR1,);
-
-    reloadFn();
+    switch (sig)
+    {
+    case SIGINT:
+    case SIGTERM:
+        terminateFn();
+        break;
+    case SIGUSR1:
+        reloadFn();
+        break;
+    case SIGUSR2:
+        evaluateFn("typeof(parameterChanged) === 'function' && parameterChanged(0, 0);");
+        break;
+    }
 }
 
 int dpf_webview_start(int /* argc */, char** /* argv[] */)
@@ -893,14 +1014,16 @@ int dpf_webview_start(int /* argc */, char** /* argv[] */)
     Display* const display = XOpenDisplay(nullptr);
     DISTRHO_SAFE_ASSERT_RETURN(display != nullptr, 1);
 
-//     const char* url = "file:///home/falktx/";
-    const char* url = "https://mastodon.falktx.com/";
+    const char* url = "file:///home/falktx/Source/DISTRHO/DPF/examples/WebMeters/index.html";
 
     struct sigaction sig = {};
     sig.sa_handler = signalHandler;
     sig.sa_flags = SA_RESTART;
     sigemptyset(&sig.sa_mask);
+    sigaction(SIGINT, &sig, nullptr);
+    sigaction(SIGTERM, &sig, nullptr);
     sigaction(SIGUSR1, &sig, nullptr);
+    sigaction(SIGUSR2, &sig, nullptr);
 
 //     qt5webengine(winId, scaleFactor, url) ||
 //     qt6webengine(winId, scaleFactor, url) ||

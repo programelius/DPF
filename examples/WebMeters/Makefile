@@ -25,6 +25,11 @@ FILES_UI  = \
 UI_TYPE = web
 include ../../Makefile.plugins.mk
 
+# BUILD_CXX_FLAGS += $(shell pkg-config --cflags gtk+-3.0 webkit2gtk-4.0)
+BUILD_CXX_FLAGS += -Wno-unused-parameter -Wno-unused-result
+BUILD_CXX_FLAGS += -Wno-deprecated-declarations
+# LINK_FLAGS += $(shell pkg-config --libs gtk+-3.0 webkit2gtk-4.0)
+
 # --------------------------------------------------------------
 # Enable all possible plugin types
 

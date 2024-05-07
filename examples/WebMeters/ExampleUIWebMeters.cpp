@@ -39,6 +39,8 @@ protected:
     */
     void parameterChanged(uint32_t index, float value) override
     {
+        d_stdout("param changed %u %f", index, value);
+        evaluateJS("if (typeof(parameterChanged) === 'function') { parameterChanged(0, 0); }");
     }
 
    /**
