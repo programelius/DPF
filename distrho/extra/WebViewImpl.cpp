@@ -376,7 +376,7 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
     getFilenameFromFunctionPtr(ldlinux, dlsym(nullptr, "_rtld_global"));
 
     char filename[PATH_MAX] = {};
-    getFilenameFromFunctionPtr(filename, reinterpret_cast<const void*>(addWebView));
+    getFilenameFromFunctionPtr(filename, reinterpret_cast<const void*>(webViewCreate));
 
     d_stdout("ld-linux is '%s'", ldlinux);
     d_stdout("filename is '%s'", filename);
@@ -498,7 +498,7 @@ void webViewResize(const WebViewHandle handle, const uint width, const uint heig
         XFree(childWindows);
     }
 
-    XMoveResizeWindow(handle->display, handle->childWindow, x, y, width, height);
+    XResizeWindow(handle->display, handle->childWindow, width, height);
     XFlush(handle->display);
   #endif
 
