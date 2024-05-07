@@ -1047,6 +1047,10 @@ int main(int argc, char* argv[])
         }
 
         hasConsole = true;
+
+        // tell windows to output console output as utf-8
+        SetConsoleCP(CP_UTF8);
+        SetConsoleOutputCP(CP_UTF8);
     }
    #endif
 
