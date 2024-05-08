@@ -36,12 +36,17 @@ WebViewWidget::WebViewWidget(Window& windowToMapTo)
                             windowToMapTo.getScaleFactor(),
                             WebViewOptions(_on_msg, this)))
 {
+    if (webview != nullptr)
+        addIdleCallback(this, 1000 / 60);
 }
 
 WebViewWidget::~WebViewWidget()
 {
     if (webview != nullptr)
+    {
+        removeIdleCallback(this);
         webViewDestroy(webview);
+    }
 }
 
 void WebViewWidget::evaluateJS(const char* const js)
@@ -71,6 +76,11 @@ void WebViewWidget::onResize(const ResizeEvent& ev)
 
     if (webview != nullptr)
         webViewResize(webview, ev.size.getWidth(), ev.size.getHeight(), getScaleFactor());
+}
+
+void WebViewWidget::idleCallback()
+{
+    webViewIdle(webview);
 }
 
 // -----------------------------------------------------------------------

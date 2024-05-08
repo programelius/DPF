@@ -266,15 +266,13 @@ UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetA
 #endif
 
   #if DISTRHO_UI_WEB_VIEW
-    evaluateJS("\
-function editParameter(index, started){ window.webkit.messageHandlers.external.postMessage('editparam ' + index + ' ' + (started ? 1 : 0)) }\
-function setParameterValue(index, value){ window.webkit.messageHandlers.external.postMessage('setparam ' + index + ' ' + value) }\
-");
+    evaluateJS(
+"editParameter=function(index,started){window.webkit.messageHandlers.external.postMessage('editparam '+index+' '+(started ? 1 : 0))};"
+"setParameterValue=function(index,value){window.webkit.messageHandlers.external.postMessage('setparam '+index+' '+value)};"
    #if DISTRHO_PLUGIN_WANT_STATE
-    evaluateJS("\
-function setState(key, value){ window.webkit.messageHandlers.external.postMessage('setstate ' + key + ' ' + value) }\
-");
+"setState=function(key,value){window.webkit.messageHandlers.external.postMessage('setstate '+key+' '+value)};"
    #endif
+    );
   #endif
 }
 
@@ -558,13 +556,11 @@ void UI::onMessage(char* const message)
 {
     if (std::strncmp(message, "setparam ", 9) == 0)
     {
-        char* const strindex = message + 9;
-        char* const sep = std::strchr(strindex, ' ');
-        DISTRHO_SAFE_ASSERT_RETURN(sep != nullptr,);
-        *sep = 0;
-        char* const strvalue = sep + 1;
+        const char* const strindex = message + 9;
+        char* strvalue = nullptr;
+        const ulong index = std::strtoul(strindex, &strvalue, 10);
+        DISTRHO_SAFE_ASSERT_RETURN(strvalue != nullptr && strindex != strvalue,);
 
-        const uint32_t index = std::atoi(strindex);
         float value;
         {
             const ScopedSafeLocale ssl;
@@ -576,14 +572,12 @@ void UI::onMessage(char* const message)
 
     if (std::strncmp(message, "editparam ", 10) == 0)
     {
-        char* const strindex = message + 10;
-        char* const sep = std::strchr(strindex, ' ');
-        DISTRHO_SAFE_ASSERT_RETURN(sep != nullptr,);
-        *sep = 0;
-        char* const strstarted = sep + 1;
+        const char* const strindex = message + 10;
+        char* strvalue = nullptr;
+        const ulong index = std::strtoul(strindex, &strvalue, 10);
+        DISTRHO_SAFE_ASSERT_RETURN(strvalue != nullptr && strindex != strvalue,);
 
-        const uint32_t index = std::atoi(strindex);
-        const bool started = std::atoi(strstarted) != 0;
+        const bool started = strvalue[0] != '0';
         editParameter(index, started);
         return;
     }

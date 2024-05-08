@@ -91,6 +91,12 @@ WebViewHandle webViewCreate(uintptr_t windowId,
 void webViewDestroy(WebViewHandle webview);
 
 /**
+  Idle the web view, to be called on regular intervals.
+  Can cause callbacks to trigger.
+*/
+void webViewIdle(WebViewHandle webview);
+
+/**
   Evaluate/run JavaScript on the web view.
 */
 void webViewEvaluateJS(WebViewHandle webview, const char* js);

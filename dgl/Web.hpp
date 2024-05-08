@@ -36,7 +36,8 @@ START_NAMESPACE_DGL
 // --------------------------------------------------------------------------------------------------------------------
 // WebViewWidget
 
-class WebViewWidget : public TopLevelWidget
+class WebViewWidget : public TopLevelWidget,
+                      private IdleCallback
 {
 public:
    /**
@@ -59,6 +60,7 @@ protected:
 
 private:
     const DISTRHO_NAMESPACE::WebViewHandle webview;
+    void idleCallback() override;
     void onDisplay() override {}
 
     // TODO inside private data

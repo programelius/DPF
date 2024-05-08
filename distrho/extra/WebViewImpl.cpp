@@ -63,13 +63,24 @@
 // #include <QtCore/QSize>
 // #undef signals
 # include "ChildProcess.hpp"
+# include "RingBuffer.hpp"
 # include "String.hpp"
 # include <clocale>
 # include <cstdio>
-# include <dlfcn.h>
 # include <functional>
-# include <linux/limits.h>
+# include <dlfcn.h>
+# include <fcntl.h>
+# include <pthread.h>
+# include <unistd.h>
+# include <sys/mman.h>
 # include <X11/Xlib.h>
+# ifdef __linux__
+#  include <syscall.h>
+#  include <linux/futex.h>
+#  include <linux/limits.h>
+# else
+#  include <semaphore.h>
+# endif
 #endif
 
 // -----------------------------------------------------------------------------------------------------------
@@ -104,10 +115,10 @@
                       initiatedByFrame:(WKFrameInfo*)frame
                      completionHandler:(void (^)(void))completionHandler
 {
-	NSAlert* const alert = [[NSAlert alloc] init];
-	[alert addButtonWithTitle:@"OK"];
+    NSAlert* const alert = [[NSAlert alloc] init];
+    [alert addButtonWithTitle:@"OK"];
     [alert setInformativeText:message];
-	[alert setMessageText:@"Alert"];
+    [alert setMessageText:@"Alert"];
 
     dispatch_async(dispatch_get_main_queue(), ^
     {
@@ -125,11 +136,11 @@
                         initiatedByFrame:(WKFrameInfo*)frame
                        completionHandler:(void (^)(BOOL))completionHandler
 {
-	NSAlert* const alert = [[NSAlert alloc] init];
-	[alert addButtonWithTitle:@"OK"];
-	[alert addButtonWithTitle:@"Cancel"];
+    NSAlert* const alert = [[NSAlert alloc] init];
+    [alert addButtonWithTitle:@"OK"];
+    [alert addButtonWithTitle:@"Cancel"];
     [alert setInformativeText:message];
-	[alert setMessageText:@"Confirm"];
+    [alert setMessageText:@"Confirm"];
 
     dispatch_async(dispatch_get_main_queue(), ^
     {
@@ -151,7 +162,7 @@
     NSTextField* const input = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 250, 30)];
     [input setStringValue:defaultText];
 
-	NSAlert* const alert = [[NSAlert alloc] init];
+    NSAlert* const alert = [[NSAlert alloc] init];
     [alert setAccessoryView:input];
     [alert addButtonWithTitle:@"OK"];
     [alert addButtonWithTitle:@"Cancel"];
@@ -208,6 +219,8 @@
 
 @end
 
+#elif WEB_VIEW_USING_X11_IPC
+
 #endif // WEB_VIEW_USING_MACOS_WEBKIT
 
 // -----------------------------------------------------------------------------------------------------------
@@ -221,8 +234,82 @@ START_NAMESPACE_DISTRHO
 
 // -----------------------------------------------------------------------------------------------------------
 
+#if WEB_VIEW_USING_X11_IPC
+#ifdef __linux__
+typedef int32_t ipc_sem_t;
+#else
+typedef sem_t ipc_sem_t;
+#endif
+
+enum WebViewMessageType {
+    kWebViewMessageNull,
+    kWebViewMessageInitData,
+    kWebViewMessageEvaluateJS,
+    kWebViewMessageCallback,
+    kWebViewMessageReload
+};
+
+struct WebViewSharedBuffer {
+    static constexpr const uint32_t size = 0x100000;
+    ipc_sem_t sem;
+    uint32_t head, tail, wrtn;
+    bool     invalidateCommit;
+    uint8_t  buf[size];
+};
+
+struct WebViewRingBuffer {
+    WebViewSharedBuffer server;
+    WebViewSharedBuffer client;
+    bool valid;
+};
+
+static void webview_wake(ipc_sem_t* const sem)
+{
+   #ifdef __linux__
+    if (__sync_bool_compare_and_swap(sem, 0, 1))
+        syscall(SYS_futex, sem, FUTEX_WAKE, 1, nullptr, nullptr, 0);
+   #else
+    sem_post(sem);
+   #endif
+}
+
+static bool webview_timedwait(ipc_sem_t* const sem)
+{
+   #ifdef __linux__
+    const struct timespec timeout = { 1, 0 };
+    for (;;)
+    {
+        if (__sync_bool_compare_and_swap(sem, 1, 0))
+            return true;
+        if (syscall(SYS_futex, sem, FUTEX_WAIT, 0, &timeout, nullptr, 0) != 0)
+            if (errno != EAGAIN && errno != EINTR)
+                return false;
+    }
+   #else
+    struct timespec timeout;
+    if (clock_gettime(CLOCK_REALTIME, &timeout) != 0)
+        return false;
+
+    timeout.tv_sec += 1;
+
+    for (int r;;)
+    {
+        r = sem_timedwait(sem, &timeout);
+
+        if (r < 0)
+            r = errno;
+
+        if (r == EINTR)
+            continue;
+
+        return r == 0;
+    }
+   #endif
+}
+
+#endif
+
 struct WebViewData {
-    const WebViewMessageCallback callback;
    #if WEB_VIEW_USING_CHOC
     choc::ui::WebView* const webview;
    #elif WEB_VIEW_USING_MACOS_WEBKIT
@@ -231,10 +318,16 @@ struct WebViewData {
     NSURLRequest* const urlreq;
     WEB_VIEW_DELEGATE_CLASS_NAME* const delegate;
    #elif WEB_VIEW_USING_X11_IPC
+    int shmfd = 0;
+    char shmname[128] = {};
+    WebViewRingBuffer* shmptr = nullptr;
+    WebViewMessageCallback callback = nullptr;
+    void* callbackPtr = nullptr;
     ChildProcess p;
-    ::Display* display;
-    ::Window childWindow;
-    ::Window ourWindow;
+    RingBufferControl<WebViewSharedBuffer> rbctrl, rbctrl2;
+    ::Display* display = nullptr;
+    ::Window childWindow = 0;
+    ::Window ourWindow = 0;
    #endif
 };
 
@@ -458,6 +551,7 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
 
     return new WebViewData{options.callback, view, webview, urlreq, delegate};
 #elif WEB_VIEW_USING_X11_IPC
+    // get startup paths
     char ldlinux[PATH_MAX] = {};
     getFilenameFromFunctionPtr(ldlinux, dlsym(nullptr, "_rtld_global"));
 
@@ -466,6 +560,50 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
 
     d_stdout("ld-linux is '%s'", ldlinux);
     d_stdout("filename is '%s'", filename);
+
+    // setup shared memory
+    int shmfd;
+    char shmname[128];
+    void* shmptr;
+
+    for (int i = 0; i < 9999; ++i)
+    {
+        snprintf(shmname, sizeof(shmname) - 1, "/dpf-webview-%d", i + 1);
+        shmfd = shm_open(shmname, O_CREAT|O_EXCL|O_RDWR, 0666);
+
+        if (shmfd < 0)
+            continue;
+
+        if (ftruncate(shmfd, sizeof(WebViewRingBuffer)) != 0)
+        {
+            close(shmfd);
+            shm_unlink(shmname);
+            continue;
+        }
+
+        break;
+    }
+
+    if (shmfd < 0)
+    {
+        d_stderr("shm_open failed: %s", strerror(errno));
+        return nullptr;
+    }
+
+    shmptr = mmap(nullptr, sizeof(WebViewRingBuffer), PROT_READ|PROT_WRITE, MAP_SHARED, shmfd, 0);
+
+    if (shmptr == nullptr || shmptr == MAP_FAILED)
+    {
+        d_stderr("mmap failed: %s", strerror(errno));
+        close(shmfd);
+        shm_unlink(shmname);
+        return nullptr;
+    }
+
+   #ifndef __linux__
+    sem_init(&handle->shmptr->client.sem, 1, 0);
+    sem_init(&handle->shmptr->server.sem, 1, 0);
+   #endif
 
     ::Display* const display = XOpenDisplay(nullptr);
     DISTRHO_SAFE_ASSERT_RETURN(display != nullptr, nullptr);
@@ -495,16 +633,49 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
             envp[e++] = nullptr;
     }
 
-    WebViewData* const handle = new WebViewData{options.callback, {}, display, 0, windowId};
+    WebViewData* const handle = new WebViewData;
+    handle->callback = options.callback;
+    handle->callbackPtr = options.callbackPtr;
+    handle->shmfd = shmfd;
+    handle->shmptr = static_cast<WebViewRingBuffer*>(shmptr);
+    handle->display = display;
+    handle->ourWindow = windowId;
+    std::memcpy(handle->shmname, shmname, sizeof(shmname));
 
-    const char* const args[] = { ldlinux, filename, "dpf-ld-linux-webview", nullptr };
+    handle->shmptr->valid = true;
+
+    handle->rbctrl.setRingBuffer(&handle->shmptr->client, false);
+    handle->rbctrl.flush();
+
+    handle->rbctrl2.setRingBuffer(&handle->shmptr->server, false);
+    handle->rbctrl2.flush();
+
+    const char* const args[] = { ldlinux, filename, "dpf-ld-linux-webview", shmname, nullptr };
     handle->p.start(args, envp);
 
     for (uint i = 0; envp[i] != nullptr; ++i)
         std::free(envp[i]);
     delete[] envp;
 
-    return handle;
+    handle->rbctrl.writeUInt(kWebViewMessageInitData) &&
+    handle->rbctrl.writeULong(windowId) &&
+    handle->rbctrl.writeUInt(initialWidth) &&
+    handle->rbctrl.writeUInt(initialHeight) &&
+    handle->rbctrl.writeDouble(scaleFactor) &&
+    handle->rbctrl.writeInt(options.offset.x) &&
+    handle->rbctrl.writeInt(options.offset.y);
+    handle->rbctrl.commitWrite();
+    webview_wake(&handle->shmptr->client.sem);
+
+    for (int i = 0; i < 5 && handle->p.isRunning(); ++i)
+    {
+        if (webview_timedwait(&handle->shmptr->server.sem))
+            return handle;
+    }
+
+    d_stderr("webview client side failed to start");
+    webViewDestroy(handle);
+    return nullptr;
 #endif
 
     // maybe unused
@@ -526,9 +697,59 @@ void webViewDestroy(const WebViewHandle handle)
     [handle->urlreq release];
     [handle->delegate release];
    #elif WEB_VIEW_USING_X11_IPC
+    munmap(handle->shmptr, sizeof(WebViewRingBuffer));
+    close(handle->shmfd);
+    shm_unlink(handle->shmname);
     XCloseDisplay(handle->display);
    #endif
     delete handle;
+}
+
+void webViewIdle(const WebViewHandle handle)
+{
+   #if WEB_VIEW_USING_X11_IPC
+    uint32_t size = 0;
+    void* buffer = nullptr;
+
+    while (handle->rbctrl2.isDataAvailableForReading())
+    {
+        switch (handle->rbctrl2.readUInt())
+        {
+        case kWebViewMessageCallback:
+            if (const uint32_t len = handle->rbctrl2.readUInt())
+            {
+                if (len > size)
+                {
+                    size = len;
+                    buffer = std::realloc(buffer, len);
+
+                    if (buffer == nullptr)
+                    {
+                        d_stderr("server out of memory, abort!");
+                        handle->rbctrl2.flush();
+                        return;
+                    }
+                }
+
+                if (handle->rbctrl2.readCustomData(buffer, len))
+                {
+                    d_debug("server kWebViewMessageCallback -> '%s'", static_cast<char*>(buffer));
+                    if (handle->callback != nullptr)
+                        handle->callback(handle->callbackPtr, static_cast<char*>(buffer));
+                    continue;
+                }
+            }
+            break;
+        }
+
+        d_stderr("server ringbuffer data race, abort!");
+        handle->rbctrl2.flush();
+        return;
+    }
+   #else
+    // unused
+    (void)handle;
+   #endif
 }
 
 void webViewEvaluateJS(const WebViewHandle handle, const char* const js)
@@ -541,7 +762,13 @@ void webViewEvaluateJS(const WebViewHandle handle, const char* const js)
     [handle->webview evaluateJavaScript:nsjs completionHandler:nullptr];
     [nsjs release];
    #elif WEB_VIEW_USING_X11_IPC
-    handle->p.signal(SIGUSR2);
+    d_debug("evaluateJS '%s'", js);
+    const size_t len = std::strlen(js) + 1;
+    handle->rbctrl.writeUInt(kWebViewMessageEvaluateJS) &&
+    handle->rbctrl.writeUInt(len) &&
+    handle->rbctrl.writeCustomData(js, len);
+    if (handle->rbctrl.commitWrite())
+        webview_wake(&handle->shmptr->client.sem);
    #endif
 
     // maybe unused
@@ -555,7 +782,10 @@ void webViewReload(const WebViewHandle handle)
    #elif WEB_VIEW_USING_MACOS_WEBKIT
     [handle->webview loadRequest:handle->urlreq];
    #elif WEB_VIEW_USING_X11_IPC
-    handle->p.signal(SIGUSR1);
+    d_stdout("reload");
+    handle->rbctrl.writeUInt(kWebViewMessageReload);
+    if (handle->rbctrl.commitWrite())
+        webview_wake(&handle->shmptr->client.sem);
    #endif
 
     // maybe unused
@@ -612,6 +842,7 @@ void webViewResize(const WebViewHandle handle, const uint width, const uint heig
 static std::function<void(const char* js)> evaluateFn;
 static std::function<void()> reloadFn;
 static std::function<void()> terminateFn;
+static std::function<void(WebViewRingBuffer* rb)> wakeFn;
 
 // -----------------------------------------------------------------------------------------------------------
 
@@ -657,10 +888,59 @@ typedef int gboolean;
 // -----------------------------------------------------------------------------------------------------------
 // gtk3 variant
 
-static int gtk_js_cb(WebKitUserContentManager*, WebKitJavascriptResult* const result, void* const arg)
+static void gtk3_idle(void* const ptr)
 {
-    void* const lib = static_cast<void*>(arg);
-    DISTRHO_SAFE_ASSERT_RETURN(lib != nullptr, false);
+    WebViewRingBuffer* const shmptr = static_cast<WebViewRingBuffer*>(ptr);
+
+    RingBufferControl<WebViewSharedBuffer> rbctrl;
+    rbctrl.setRingBuffer(&shmptr->client, false);
+
+    uint32_t size = 0;
+    void* buffer = nullptr;
+
+    while (rbctrl.isDataAvailableForReading())
+    {
+        switch (rbctrl.readUInt())
+        {
+        case kWebViewMessageEvaluateJS:
+            if (const uint32_t len = rbctrl.readUInt())
+            {
+                if (len > size)
+                {
+                    size = len;
+                    buffer = realloc(buffer, len);
+
+                    if (buffer == nullptr)
+                    {
+                        d_stderr("lv2ui client out of memory, abort!");
+                        abort();
+                    }
+                }
+
+                if (rbctrl.readCustomData(buffer, len))
+                {
+                    d_debug("client kWebViewMessageEvaluateJS -> '%s'", static_cast<char*>(buffer));
+                    evaluateFn(static_cast<char*>(buffer));
+                    continue;
+                }
+            }
+            break;
+        case kWebViewMessageReload:
+            d_debug("client kWebViewMessageReload");
+            reloadFn();
+            continue;
+        }
+
+        d_stderr("client ringbuffer data race, abort!");
+        abort();
+    }
+
+    free(buffer);
+}
+
+static int gtk3_js_cb(WebKitUserContentManager*, WebKitJavascriptResult* const result, void* const arg)
+{
+    WebViewRingBuffer* const shmptr = static_cast<WebViewRingBuffer*>(arg);
 
     using g_free_t = void (*)(void*);
     using jsc_value_to_string_t = char* (*)(JSCValue*);
@@ -676,25 +956,36 @@ static int gtk_js_cb(WebKitUserContentManager*, WebKitJavascriptResult* const re
     char* const string = jsc_value_to_string(value);
     DISTRHO_SAFE_ASSERT_RETURN(string != nullptr, false);
 
-    d_stdout("js call received with data '%s'", string);
+    d_debug("js call received with data '%s'", string);
+
+    const size_t len = std::strlen(string);
+    RingBufferControl<WebViewSharedBuffer> rbctrl2;
+    rbctrl2.setRingBuffer(&shmptr->server, false);
+    rbctrl2.writeUInt(kWebViewMessageCallback) &&
+    rbctrl2.writeUInt(len) &&
+    rbctrl2.writeCustomData(string, len);
+    rbctrl2.commitWrite();
+
     g_free(string);
     return 0;
 }
 
 static bool gtk3(Display* const display,
                  const Window winId,
-                 const uint x,
-                 const uint y,
+                 const int x,
+                 const int y,
                  const uint width,
                  const uint height,
                  double scaleFactor,
-                 const char* const url)
+                 const char* const url,
+                 WebViewRingBuffer* const shmptr)
 {
     void* lib;
     if ((lib = dlopen("libwebkit2gtk-4.0.so.37", RTLD_NOW|RTLD_GLOBAL)) == nullptr ||
         (lib = dlopen("libwebkit2gtk-4.0.so", RTLD_NOW|RTLD_GLOBAL)) == nullptr)
         return false;
 
+    using g_main_context_invoke_t = void (*)(void*, void*, void*);
     using g_signal_connect_data_t = ulong (*)(void*, const char*, void*, void*, void*, int);
     using gdk_set_allowed_backends_t = void (*)(const char*);
     using gtk_container_add_t = void (*)(GtkContainer*, GtkWidget*);
@@ -719,6 +1010,7 @@ static bool gtk3(Display* const display,
     using webkit_web_view_run_javascript_t = void* (*)(WebKitWebView*, const char*, void*, void*, void*);
     using webkit_web_view_set_background_color_t = void (*)(WebKitWebView*, const double*);
 
+    CSYM(g_main_context_invoke_t, g_main_context_invoke)
     CSYM(g_signal_connect_data_t, g_signal_connect_data)
     CSYM(gdk_set_allowed_backends_t, gdk_set_allowed_backends)
     CSYM(gtk_container_add_t, gtk_container_add)
@@ -802,7 +1094,7 @@ static bool gtk3(Display* const display,
 
     if (WebKitUserContentManager* const manager = webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(webview)))
     {
-        g_signal_connect_data(manager, "script-message-received::external", G_CALLBACK(gtk_js_cb), lib, nullptr, 0);
+        g_signal_connect_data(manager, "script-message-received::external", G_CALLBACK(gtk3_js_cb), shmptr, nullptr, 0);
         webkit_user_content_manager_register_script_message_handler(manager, "external");
     }
 
@@ -837,6 +1129,13 @@ static bool gtk3(Display* const display,
             gtk_main_quit();
         }
     };
+
+    wakeFn = [=](WebViewRingBuffer* const rb){
+        g_main_context_invoke(NULL, G_CALLBACK(gtk3_idle), rb);
+    };
+
+    // notify server we started ok
+    webview_wake(&shmptr->server.sem);
 
     gtk_main();
     d_stdout("quit");
@@ -1062,54 +1361,112 @@ static void signalHandler(const int sig)
 {
     switch (sig)
     {
-    case SIGINT:
     case SIGTERM:
         terminateFn();
-        break;
-    case SIGUSR1:
-        reloadFn();
-        break;
-    case SIGUSR2:
-        evaluateFn("typeof(parameterChanged) === 'function' && parameterChanged(0, 0);");
         break;
     }
 }
 
-int dpf_webview_start(int /* argc */, char** /* argv[] */)
+static void* threadHandler(void* const ptr)
 {
+    WebViewRingBuffer* const shmptr = static_cast<WebViewRingBuffer*>(ptr);
+
+    // TODO wait until page is loaded, or something better
+    d_sleep(1);
+
+    while (shmptr->valid)
+    {
+        if (webview_timedwait(&shmptr->client.sem))
+            wakeFn(shmptr);
+    }
+
+    return nullptr;
+}
+
+int dpf_webview_start(const int argc, char* argv[])
+{
+    d_stdout("started %d %s", argc, argv[1]);
+
+    if (argc != 3)
+    {
+        d_stderr("WebView entry point, nothing to see here! ;)");
+        return 1;
+    }
+
     uselocale(newlocale(LC_NUMERIC_MASK, "C", nullptr));
-
-    const char* const envScaleFactor = std::getenv("DPF_WEB_VIEW_SCALE_FACTOR");
-    DISTRHO_SAFE_ASSERT_RETURN(envScaleFactor != nullptr, 1);
-
-    const char* const envWinId = std::getenv("DPF_WEB_VIEW_WIN_ID");
-    DISTRHO_SAFE_ASSERT_RETURN(envWinId != nullptr, 1);
-
-    const Window winId = std::strtoul(envWinId, nullptr, 10);
-    DISTRHO_SAFE_ASSERT_RETURN(winId != 0, 1);
-
-    const double scaleFactor = std::atof(envScaleFactor);
-    DISTRHO_SAFE_ASSERT_RETURN(scaleFactor > 0.0, 1);
 
     Display* const display = XOpenDisplay(nullptr);
     DISTRHO_SAFE_ASSERT_RETURN(display != nullptr, 1);
 
+    const char* const shmname = argv[2];
+    const int shmfd = shm_open(shmname, O_RDWR, 0);
+    if (shmfd < 0)
+    {
+        d_stderr("shm_open failed: %s", std::strerror(errno));
+        return 1;
+    }
+
+    WebViewRingBuffer* const shmptr = static_cast<WebViewRingBuffer*>(mmap(nullptr,
+                                                                           sizeof(WebViewRingBuffer),
+                                                                           PROT_READ|PROT_WRITE,
+                                                                           MAP_SHARED,
+                                                                           shmfd, 0));
+    if (shmptr == nullptr || shmptr == nullptr)
+    {
+        d_stderr("mmap failed: %s", std::strerror(errno));
+        close(shmfd);
+        return 1;
+    }
+
+    RingBufferControl<WebViewSharedBuffer> rbctrl;
+    rbctrl.setRingBuffer(&shmptr->client, false);
+
     const char* url = "file:///home/falktx/Source/DISTRHO/DPF/examples/WebMeters/index.html";
 
-    struct sigaction sig = {};
-    sig.sa_handler = signalHandler;
-    sig.sa_flags = SA_RESTART;
-    sigemptyset(&sig.sa_mask);
-    sigaction(SIGINT, &sig, nullptr);
-    sigaction(SIGTERM, &sig, nullptr);
-    sigaction(SIGUSR1, &sig, nullptr);
-    sigaction(SIGUSR2, &sig, nullptr);
+    // fetch initial data
+    bool hasInitialData = false;
+    Window winId = 0;
+    uint width = 0, height = 0;
+    double scaleFactor = 0;
+    int x = 0, y = 0;
 
-//     qt5webengine(winId, scaleFactor, url) ||
-//     qt6webengine(winId, scaleFactor, url) ||
-    gtk3(display, winId, 0, 0, 600, 400, scaleFactor, url);
+    while (shmptr->valid && webview_timedwait(&shmptr->client.sem))
+    {
+        if (rbctrl.isDataAvailableForReading())
+        {
+            DISTRHO_SAFE_ASSERT_RETURN(rbctrl.readUInt() == kWebViewMessageInitData, 1);
+
+            hasInitialData = true;
+            winId = rbctrl.readULong();
+            width = rbctrl.readUInt();
+            height = rbctrl.readUInt();
+            scaleFactor = rbctrl.readDouble();
+            x = rbctrl.readInt();
+            y = rbctrl.readInt();
+        }
+    }
+
+    pthread_t thread;
+    if (hasInitialData && pthread_create(&thread, nullptr, threadHandler, shmptr) == 0)
+    {
+        struct sigaction sig = {};
+        sig.sa_handler = signalHandler;
+        sig.sa_flags = SA_RESTART;
+        sigemptyset(&sig.sa_mask);
+        sigaction(SIGTERM, &sig, nullptr);
+
+        // qt5webengine(winId, scaleFactor, url) ||
+        // qt6webengine(winId, scaleFactor, url) ||
+        gtk3(display, winId, x, y, width, height, scaleFactor, url, shmptr);
+    }
+
+    shmptr->valid = false;
+    pthread_join(thread, nullptr);
 
     XCloseDisplay(display);
+
+    munmap(shmptr, sizeof(WebViewRingBuffer));
+    close(shmfd);
 
     return 0;
 }

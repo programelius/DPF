@@ -1007,7 +1007,7 @@ int main(int argc, char* argv[])
 
    #ifdef DPF_USING_LD_LINUX_WEBVIEW
     if (argc >= 2 && std::strcmp(argv[1], "dpf-ld-linux-webview") == 0)
-        return dpf_webview_start(argc - 1, argv + 1);
+        return dpf_webview_start(argc, argv);
    #endif
 
     if (argc == 2 && std::strcmp(argv[1], "selftest") == 0)
