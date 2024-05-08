@@ -264,6 +264,18 @@ UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetA
     // unused
     (void)automaticallyScaleAndSetAsMinimumSize;
 #endif
+
+  #if DISTRHO_UI_WEB_VIEW
+    evaluateJS("\
+function editParameter(index, started){ window.webkit.messageHandlers.external.postMessage('editparam ' + index + ' ' + (started ? 1 : 0)) }\
+function setParameterValue(index, value){ window.webkit.messageHandlers.external.postMessage('setparam ' + index + ' ' + value) }\
+");
+   #if DISTRHO_PLUGIN_WANT_STATE
+    evaluateJS("\
+function setState(key, value){ window.webkit.messageHandlers.external.postMessage('setstate ' + key + ' ' + value) }\
+");
+   #endif
+  #endif
 }
 
 UI::~UI()
@@ -381,37 +393,57 @@ uintptr_t UI::getNextWindowId() noexcept
 
 void UI::parameterChanged(const uint32_t index, const float value)
 {
-#if DISTRHO_UI_WEB_VIEW
-    evaluateJS("typeof(parameterChanged) === 'function' && parameterChanged(0, 0);");
-#else
+   #if DISTRHO_UI_WEB_VIEW
+    char msg[128];
+    {
+        const ScopedSafeLocale ssl;
+        std::snprintf(msg, sizeof(msg) - 1,
+                      "typeof(parameterChanged) === 'function' && parameterChanged(%u,%f)", index, value);
+    }
+    evaluateJS(msg);
+   #else
     // unused
     (void)index;
     (void)value;
-#endif
+   #endif
 }
 
 #if DISTRHO_PLUGIN_WANT_PROGRAMS
 void UI::programLoaded(const uint32_t index)
 {
-#if DISTRHO_UI_WEB_VIEW
-    evaluateJS("typeof(programLoaded) === 'function' && programLoaded(0);");
-#else
+   #if DISTRHO_UI_WEB_VIEW
+    char msg[128];
+    std::snprintf(msg, sizeof(msg) - 1,
+                  "typeof(programLoaded) === 'function' && programLoaded(%u)", index);
+    evaluateJS(msg);
+   #else
     // unused
     (void)index;
-#endif
+   #endif
 }
 #endif
 
 #if DISTRHO_PLUGIN_WANT_STATE
 void UI::stateChanged(const char* const key, const char* const value)
 {
-#if DISTRHO_UI_WEB_VIEW
-    evaluateJS("typeof(stateChanged) === 'function' && stateChanged('', '');");
-#else
+   #if DISTRHO_UI_WEB_VIEW
+    const size_t keylen = std::strlen(key);
+    const size_t valuelen = std::strlen(value);
+    const size_t msglen = keylen + valuelen + 60;
+    if (char* const msg = static_cast<char*>(std::malloc(msglen)))
+    {
+        // TODO escape \\'
+        std::snprintf(msg, sizeof(msglen) - 1,
+                      "typeof(stateChanged) === 'function' && stateChanged('%s','%s')", key, value);
+        msg[msglen - 1] = '\0';
+        evaluateJS(msg);
+        std::free(msg);
+    }
+   #else
     // unused
     (void)key;
     (void)value;
-#endif
+   #endif
 }
 #endif
 
@@ -420,12 +452,18 @@ void UI::stateChanged(const char* const key, const char* const value)
 
 void UI::sampleRateChanged(const double sampleRate)
 {
-#if DISTRHO_UI_WEB_VIEW
-    evaluateJS("typeof(sampleRateChanged) === 'function' && sampleRateChanged(0);");
-#else
+   #if DISTRHO_UI_WEB_VIEW
+    char msg[128];
+    {
+        const ScopedSafeLocale ssl;
+        std::snprintf(msg, sizeof(msg) - 1,
+                      "typeof(sampleRateChanged) === 'function' && sampleRateChanged(%f)", sampleRate);
+    }
+    evaluateJS(msg);
+   #else
     // unused
     (void)sampleRate;
-#endif
+   #endif
 }
 
 /* ------------------------------------------------------------------------------------------------------------
@@ -510,6 +548,61 @@ void UI::requestSizeChange(const uint width, const uint height)
     (void)width;
     (void)height;
    #endif
+}
+#endif
+
+// -----------------------------------------------------------------------------------------------------------
+
+#if DISTRHO_UI_WEB_VIEW
+void UI::onMessage(char* const message)
+{
+    if (std::strncmp(message, "setparam ", 9) == 0)
+    {
+        char* const strindex = message + 9;
+        char* const sep = std::strchr(strindex, ' ');
+        DISTRHO_SAFE_ASSERT_RETURN(sep != nullptr,);
+        *sep = 0;
+        char* const strvalue = sep + 1;
+
+        const uint32_t index = std::atoi(strindex);
+        float value;
+        {
+            const ScopedSafeLocale ssl;
+            value = std::atof(strvalue);
+        }
+        setParameterValue(index, value);
+        return;
+    }
+
+    if (std::strncmp(message, "editparam ", 10) == 0)
+    {
+        char* const strindex = message + 10;
+        char* const sep = std::strchr(strindex, ' ');
+        DISTRHO_SAFE_ASSERT_RETURN(sep != nullptr,);
+        *sep = 0;
+        char* const strstarted = sep + 1;
+
+        const uint32_t index = std::atoi(strindex);
+        const bool started = std::atoi(strstarted) != 0;
+        editParameter(index, started);
+        return;
+    }
+
+   #if DISTRHO_PLUGIN_WANT_STATE
+    if (std::strncmp(message, "setstate ", 9) == 0)
+    {
+        char* const key = message + 9;
+        char* const sep = std::strchr(key, ' ');
+        DISTRHO_SAFE_ASSERT_RETURN(sep != nullptr,);
+        *sep = 0;
+        char* const value = sep + 1;
+
+        setState(key, value);
+        return;
+    }
+   #endif
+
+    d_stderr("UI received unknown message %s", message);
 }
 #endif
 

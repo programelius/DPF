@@ -33,10 +33,9 @@ WebViewWidget::WebViewWidget(Window& windowToMapTo)
       webview(webViewCreate(windowToMapTo.getNativeWindowHandle(),
                             windowToMapTo.getWidth(),
                             windowToMapTo.getHeight(),
-                            windowToMapTo.getScaleFactor()))
+                            windowToMapTo.getScaleFactor(),
+                            WebViewOptions(_on_msg, this)))
 {
-    // FIXME wait till process is here?
-    d_msleep(200);
 }
 
 WebViewWidget::~WebViewWidget()
@@ -55,6 +54,15 @@ void WebViewWidget::reload()
 {
     if (webview != nullptr)
         webViewReload(webview);
+}
+
+void WebViewWidget::_on_msg(void* const arg, char* const message)
+{
+    static_cast<WebViewWidget*>(arg)->onMessage(message);
+}
+
+void WebViewWidget::onMessage(char*)
+{
 }
 
 void WebViewWidget::onResize(const ResizeEvent& ev)

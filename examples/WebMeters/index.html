@@ -14,6 +14,20 @@
 
       setTimeout(function() {
         document.getElementById('user-agent').textContent = window.navigator.userAgent;
+        document.getElementById('left-meter').onclick = function() {
+          console.log("left meter clicked");
+          fColorValue = fColorValue == 1 ? 0 : 1;
+          updateColor(fColorValue, true);
+          setParameterValue(0, fColorValue);
+          repaint();
+        }
+        document.getElementById('right-meter').onclick = function() {
+          console.log("right meter clicked");
+          fColorValue = fColorValue == 1 ? 0 : 1;
+          updateColor(fColorValue, true);
+          setParameterValue(0, fColorValue);
+          repaint();
+        }
       }, 1)
 
       function repaint() {
@@ -21,9 +35,12 @@
         const rmeter = document.getElementById('right-meter-x');
         lmeter.setAttribute('style', 'background:' + fColor + ';top:' + (100 * (1.0 - fOutLeft)) + '%;height:' + (100 * fOutLeft) + '%');
         rmeter.setAttribute('style', 'background:' + fColor + ';top:' + (100 * (1.0 - fOutRight)) + '%;height:' + (100 * fOutRight) + '%');
+        setTimeout(function() {
+          setState('reset', '');
+        }, 1)
       }
-      function updateColor(color) {
-        if (fColorValue === color)
+      function updateColor(color, forced) {
+        if (fColorValue === color && !forced)
             return;
 
         fColorValue = color;

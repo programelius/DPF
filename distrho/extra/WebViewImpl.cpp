@@ -82,13 +82,15 @@
 #define WEB_VIEW_DELEGATE_CLASS_NAME \
     MACRO_NAME(WebViewDelegate_, _, DISTRHO_NAMESPACE)
 
-// FIXME
-static bool loaded = false;
-
 @interface WEB_VIEW_DELEGATE_CLASS_NAME : NSObject<WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate>
 @end
 
-@implementation WEB_VIEW_DELEGATE_CLASS_NAME
+@implementation WEB_VIEW_DELEGATE_CLASS_NAME {
+@public
+    WebViewMessageCallback callback;
+    void* callbackPtr;
+    bool loaded;
+}
 
 - (void)webView:(WKWebView *)webview
     didFinishNavigation:(WKNavigation*)navigation
@@ -195,9 +197,13 @@ static bool loaded = false;
       didReceiveScriptMessage:(WKScriptMessage*)message
 {
     NSString* const nsstring = static_cast<NSString*>([message body]);
-    const char* const string = [nsstring UTF8String];
+    char* const string = strdup([nsstring UTF8String]);
+    d_debug("JS call received '%s' %p", string, callback);
 
-    d_stdout("JS call received '%s'", string);
+    if (callback != nullptr)
+        callback(callbackPtr, string);
+
+    std::free(string);
 }
 
 @end
@@ -216,6 +222,7 @@ START_NAMESPACE_DISTRHO
 // -----------------------------------------------------------------------------------------------------------
 
 struct WebViewData {
+    const WebViewMessageCallback callback;
    #if WEB_VIEW_USING_CHOC
     choc::ui::WebView* const webview;
    #elif WEB_VIEW_USING_MACOS_WEBKIT
@@ -358,7 +365,7 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
     ShowWindow(hwnd, SW_SHOW);
    #endif
 
-    return new WebViewData{webview.release()};
+    return new WebViewData{options.callback, webview.release()};
 #elif WEB_VIEW_USING_MACOS_WEBKIT
     NSView* const view = reinterpret_cast<NSView*>(windowId);
 
@@ -389,6 +396,10 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
     // TODO webkit_web_view_set_background_color
 
     WEB_VIEW_DELEGATE_CLASS_NAME* const delegate = [[WEB_VIEW_DELEGATE_CLASS_NAME alloc] init];
+    delegate->callback = options.callback;
+    delegate->callbackPtr = options.callbackPtr;
+    delegate->loaded = false;
+
     webview.navigationDelegate = delegate;
     webview.UIDelegate = delegate;
 
@@ -410,13 +421,13 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
 
     d_stdout("waiting for load");
 
-    if (! loaded)
+    if (! delegate->loaded)
     {
         NSAutoreleasePool* const pool = [[NSAutoreleasePool alloc] init];
-        NSDate* const date = [NSDate distantPast];
+        NSDate* const date = [NSDate distantFuture];
         NSEvent* event;
 
-        while (! loaded)
+        while (! delegate->loaded)
         {
             event = [NSApp
                     #ifdef __MAC_10_12
@@ -437,13 +448,15 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
         [pool release];
     }
 
+    d_stdout("waiting done");
+
     [webview setHidden:NO];
 
     [nsurl release];
     [config release];
     [prefs release];
 
-    return new WebViewData{view, webview, urlreq, delegate};
+    return new WebViewData{options.callback, view, webview, urlreq, delegate};
 #elif WEB_VIEW_USING_X11_IPC
     char ldlinux[PATH_MAX] = {};
     getFilenameFromFunctionPtr(ldlinux, dlsym(nullptr, "_rtld_global"));
@@ -482,10 +495,7 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
             envp[e++] = nullptr;
     }
 
-    WebViewData* const handle = new WebViewData();
-    handle->display = display;
-    handle->childWindow = 0;
-    handle->ourWindow = windowId;
+    WebViewData* const handle = new WebViewData{options.callback, {}, display, 0, windowId};
 
     const char* const args[] = { ldlinux, filename, "dpf-ld-linux-webview", nullptr };
     handle->p.start(args, envp);

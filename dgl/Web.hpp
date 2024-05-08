@@ -21,6 +21,7 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
+// TODO private data
 START_NAMESPACE_DISTRHO
 
 struct WebViewData;
@@ -53,11 +54,15 @@ public:
     void reload();
 
 protected:
+    virtual void onMessage(char* message);
     void onResize(const ResizeEvent& ev) override;
 
 private:
     const DISTRHO_NAMESPACE::WebViewHandle webview;
     void onDisplay() override {}
+
+    // TODO inside private data
+    static void _on_msg(void*, char*);
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WebViewWidget)
 };

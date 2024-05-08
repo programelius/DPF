@@ -371,6 +371,13 @@ protected:
     void onResize(const ResizeEvent& ev) override;
 #endif
 
+   /* --------------------------------------------------------------------------------------------------------
+    * WebView message handling, internal */
+
+   #if DISTRHO_UI_WEB_VIEW
+    void onMessage(char* message) override;
+   #endif
+
     // -------------------------------------------------------------------------------------------------------
 
 private:

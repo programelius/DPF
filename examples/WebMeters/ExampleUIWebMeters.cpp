@@ -24,40 +24,9 @@ class ExampleUIMeters : public UI
 {
 public:
     ExampleUIMeters()
-        : UI(600, 400, true)
+        : UI(100, 500, true)
     {
     }
-
-protected:
-   /* --------------------------------------------------------------------------------------------------------
-    * DSP/Plugin Callbacks */
-
-   /**
-      A parameter has changed on the plugin side.
-      This is called by the host to inform the UI about parameter changes.
-    */
-    void parameterChanged(uint32_t index, float value) override
-    {
-        // d_stdout("param changed %u %f", index, value);
-        char msg[512];
-        {
-            const ScopedSafeLocale ssl;
-            std::snprintf(msg, sizeof(msg) - 1,
-                          "typeof(parameterChanged) === 'function' && parameterChanged(%u, %f)", index, value);
-        }
-        evaluateJS(msg);
-    }
-
-   /**
-      A state has changed on the plugin side.
-      This is called by the host to inform the UI about state changes.
-    */
-    void stateChanged(const char*, const char*) override
-    {
-        // nothing here
-    }
-
-    // -------------------------------------------------------------------------------------------------------
 
 private:
    /**

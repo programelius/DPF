@@ -23,6 +23,7 @@
 
 struct WebViewData;
 typedef WebViewData* WebViewHandle;
+typedef void (*WebViewMessageCallback)(void* arg, char* msg);
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -44,9 +45,23 @@ struct WebViewOptions {
       PositionOffset() : x(0), y(0) {}
     } offset;
 
+   /**
+      Message callback triggered from JavaScript code inside the WebView.
+    */
+    WebViewMessageCallback callback;
+    void* callbackPtr;
+
     /** Constructor for default values */
     WebViewOptions()
-      : offset() {}
+      : offset(),
+        callback(nullptr),
+        callbackPtr(nullptr) {}
+
+    /** Constructor providing a callback */
+    WebViewOptions(const WebViewMessageCallback cb, void* const ptr)
+      : offset(),
+        callback(cb),
+        callbackPtr(ptr) {}
 };
 
 // --------------------------------------------------------------------------------------------------------------------
