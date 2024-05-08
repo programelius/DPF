@@ -1,6 +1,6 @@
 /*
  * DISTRHO Plugin Framework (DPF)
- * Copyright (C) 2012-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2024 Filipe Coelho <falktx@falktx.com>
  *
  * Permission to use, copy, modify, and/or distribute this software for any purpose with
  * or without fee is hereby granted, provided that the above copyright notice and this
@@ -24,9 +24,8 @@ class ExampleUIMeters : public UI
 {
 public:
     ExampleUIMeters()
-        : UI(600, 400)
+        : UI(600, 400, true)
     {
-        setGeometryConstraints(600, 400, false);
     }
 
 protected:
@@ -39,8 +38,14 @@ protected:
     */
     void parameterChanged(uint32_t index, float value) override
     {
-        d_stdout("param changed %u %f", index, value);
-        evaluateJS("if (typeof(parameterChanged) === 'function') { parameterChanged(0, 0); }");
+        // d_stdout("param changed %u %f", index, value);
+        char msg[512];
+        {
+            const ScopedSafeLocale ssl;
+            std::snprintf(msg, sizeof(msg) - 1,
+                          "typeof(parameterChanged) === 'function' && parameterChanged(%u, %f)", index, value);
+        }
+        evaluateJS(msg);
     }
 
    /**

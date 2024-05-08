@@ -237,7 +237,8 @@ protected:
         {
             fOutLeft  = tmpLeft;
             fOutRight = tmpRight;
-            fNeedsReset = false;
+            // TODO
+            // fNeedsReset = false;
         }
         else
         {

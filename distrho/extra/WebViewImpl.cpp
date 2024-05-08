@@ -82,10 +82,20 @@
 #define WEB_VIEW_DELEGATE_CLASS_NAME \
     MACRO_NAME(WebViewDelegate_, _, DISTRHO_NAMESPACE)
 
-@interface WEB_VIEW_DELEGATE_CLASS_NAME : NSObject<WKUIDelegate>
+// FIXME
+static bool loaded = false;
+
+@interface WEB_VIEW_DELEGATE_CLASS_NAME : NSObject<WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate>
 @end
 
 @implementation WEB_VIEW_DELEGATE_CLASS_NAME
+
+- (void)webView:(WKWebView *)webview
+    didFinishNavigation:(WKNavigation*)navigation
+{
+    d_stdout("page loaded");
+    loaded = true;
+}
 
 - (void)webView:(WKWebView*)webview
     runJavaScriptAlertPanelWithMessage:(NSString*)message
@@ -179,6 +189,15 @@
             [panel release];
         }];
     });
+}
+
+- (void)userContentController:(WKUserContentController*)userContentController
+      didReceiveScriptMessage:(WKScriptMessage*)message
+{
+    NSString* const nsstring = static_cast<NSString*>([message body]);
+    const char* const string = [nsstring UTF8String];
+
+    d_stdout("JS call received '%s'", string);
 }
 
 @end
@@ -349,25 +368,75 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
                                    (initialHeight - options.offset.y));
 
     WKPreferences* const prefs = [[WKPreferences alloc] init];
-    [prefs setValue:@YES forKey:@"developerExtrasEnabled"];
+    [prefs setValue:@YES forKey:@"javaScriptCanAccessClipboard"];
+    [prefs setValue:@YES forKey:@"DOMPasteAllowed"];
+
+    // if (debug)
+    {
+        [prefs setValue:@YES forKey:@"developerExtrasEnabled"];
+        // TODO enable_write_console_messages_to_stdout
+    }
 
     WKWebViewConfiguration* const config = [[WKWebViewConfiguration alloc] init];
+    config.limitsNavigationsToAppBoundDomains = false;
     config.preferences = prefs;
 
     WKWebView* const webview = [[WKWebView alloc] initWithFrame:rect
                                                   configuration:config];
+    [webview setHidden:YES];
     [view addSubview:webview];
 
+    // TODO webkit_web_view_set_background_color
+
     WEB_VIEW_DELEGATE_CLASS_NAME* const delegate = [[WEB_VIEW_DELEGATE_CLASS_NAME alloc] init];
+    webview.navigationDelegate = delegate;
     webview.UIDelegate = delegate;
 
-    const char* const url = "https://mastodon.falktx.com/";
+    if (WKUserContentController* const controller = [config userContentController])
+    {
+        [controller retain];
+        [controller addScriptMessageHandler:delegate name:@"external"];
+    }
+
+    const char* const url = "file:///Users/falktx/Source/DISTRHO/DPF/examples/WebMeters/index.html";
     NSString* const nsurl = [[NSString alloc] initWithBytes:url
                                                      length:std::strlen(url)
                                                    encoding:NSUTF8StringEncoding];
     NSURLRequest* const urlreq = [[NSURLRequest alloc] initWithURL: [NSURL URLWithString: nsurl]];
 
-    [webview loadRequest:urlreq];
+    // [webview loadRequest:urlreq];
+    [webview loadFileRequest:urlreq
+     allowingReadAccessToURL:[NSURL URLWithString:@"file:///Users/falktx/Source/DISTRHO/DPF/examples/WebMeters/"]];
+
+    d_stdout("waiting for load");
+
+    if (! loaded)
+    {
+        NSAutoreleasePool* const pool = [[NSAutoreleasePool alloc] init];
+        NSDate* const date = [NSDate distantPast];
+        NSEvent* event;
+
+        while (! loaded)
+        {
+            event = [NSApp
+                    #ifdef __MAC_10_12
+                     nextEventMatchingMask:NSEventMaskAny
+                    #else
+                     nextEventMatchingMask:NSAnyEventMask
+                    #endif
+                                 untilDate:date
+                                    inMode:NSDefaultRunLoopMode
+                                   dequeue:YES];
+
+            if (event == nil)
+                break;
+
+            [NSApp sendEvent: event];
+        }
+
+        [pool release];
+    }
+
     [webview setHidden:NO];
 
     [nsurl release];
@@ -441,26 +510,26 @@ void webViewDestroy(const WebViewHandle handle)
 {
    #if WEB_VIEW_USING_CHOC
     delete handle->webview;
-    delete handle;
    #elif WEB_VIEW_USING_MACOS_WEBKIT
     [handle->webview setHidden:YES];
     [handle->webview removeFromSuperview];
     [handle->urlreq release];
     [handle->delegate release];
-    delete handle;
    #elif WEB_VIEW_USING_X11_IPC
     XCloseDisplay(handle->display);
-    delete handle;
    #endif
-
-    // maybe unused
-    (void)handle;
+    delete handle;
 }
 
 void webViewEvaluateJS(const WebViewHandle handle, const char* const js)
 {
    #if WEB_VIEW_USING_CHOC
    #elif WEB_VIEW_USING_MACOS_WEBKIT
+    NSString* const nsjs = [[NSString alloc] initWithBytes:js
+                                                    length:std::strlen(js)
+                                                  encoding:NSUTF8StringEncoding];
+    [handle->webview evaluateJavaScript:nsjs completionHandler:nullptr];
+    [nsjs release];
    #elif WEB_VIEW_USING_X11_IPC
     handle->p.signal(SIGUSR2);
    #endif
@@ -705,6 +774,7 @@ static bool gtk3(Display* const display,
     WebKitSettings* const settings = webkit_settings_new();
     DISTRHO_SAFE_ASSERT_RETURN(settings != nullptr, false);
 
+    // TODO DOMPasteAllowed
     webkit_settings_set_javascript_can_access_clipboard(settings, true);
     webkit_settings_set_hardware_acceleration_policy(settings, 2 /* WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER */);
 
