@@ -39,6 +39,5 @@
 
 #define DISTRHO_UI_DEFAULT_WIDTH 100
 #define DISTRHO_UI_DEFAULT_HEIGHT 500
-#define kVerticalOffset 0
 
 #endif // DISTRHO_PLUGIN_INFO_H_INCLUDED

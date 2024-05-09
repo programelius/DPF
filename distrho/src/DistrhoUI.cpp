@@ -15,8 +15,8 @@
  */
 
 #include "DistrhoDetails.hpp"
+#include "DistrhoPluginUtils.hpp"
 #include "src/DistrhoPluginChecks.h"
-#include "src/DistrhoDefines.h"
 
 #include <cstddef>
 
@@ -88,7 +88,6 @@ uintptr_t   g_nextWindowId    = 0;
 double      g_nextScaleFactor = 1.0;
 #endif
 
-#if DISTRHO_PLUGIN_HAS_EXTERNAL_UI
 /* ------------------------------------------------------------------------------------------------------------
  * get global scale factor */
 
@@ -101,23 +100,23 @@ static double getDesktopScaleFactor(const uintptr_t parentWindowHandle)
     if (const char* const scale = getenv("DPF_SCALE_FACTOR"))
         return std::max(1.0, std::atof(scale));
 
-#if defined(DISTRHO_OS_WINDOWS)
+   #if defined(DISTRHO_OS_WINDOWS)
     if (const HMODULE Shcore = LoadLibraryA("Shcore.dll"))
     {
         typedef HRESULT(WINAPI* PFN_GetProcessDpiAwareness)(HANDLE, DWORD*);
         typedef HRESULT(WINAPI* PFN_GetScaleFactorForMonitor)(HMONITOR, DWORD*);
 
-# if defined(__GNUC__) && (__GNUC__ >= 9)
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wcast-function-type"
-# endif
+      #if defined(__GNUC__) && (__GNUC__ >= 9)
+       #pragma GCC diagnostic push
+       #pragma GCC diagnostic ignored "-Wcast-function-type"
+      #endif
         const PFN_GetProcessDpiAwareness GetProcessDpiAwareness
             = (PFN_GetProcessDpiAwareness)GetProcAddress(Shcore, "GetProcessDpiAwareness");
         const PFN_GetScaleFactorForMonitor GetScaleFactorForMonitor
             = (PFN_GetScaleFactorForMonitor)GetProcAddress(Shcore, "GetScaleFactorForMonitor");
-# if defined(__GNUC__) && (__GNUC__ >= 9)
-#  pragma GCC diagnostic pop
-# endif
+      #if defined(__GNUC__) && (__GNUC__ >= 9)
+       #pragma GCC diagnostic pop
+      #endif
 
         DWORD dpiAware = 0;
         DWORD scaleFactor = 100;
@@ -133,7 +132,7 @@ static double getDesktopScaleFactor(const uintptr_t parentWindowHandle)
         FreeLibrary(Shcore);
         return static_cast<double>(scaleFactor) / 100.0;
     }
-#elif defined(HAVE_X11)
+   #elif defined(HAVE_X11)
     ::Display* const display = XOpenDisplay(nullptr);
     DISTRHO_SAFE_ASSERT_RETURN(display != nullptr, 1.0);
 
@@ -164,7 +163,7 @@ static double getDesktopScaleFactor(const uintptr_t parentWindowHandle)
 
     XCloseDisplay(display);
     return dpi / 96;
-#endif
+   #endif
 
     return 1.0;
 
@@ -172,8 +171,6 @@ static double getDesktopScaleFactor(const uintptr_t parentWindowHandle)
     (void)parentWindowHandle;
 }
 #endif // !DISTRHO_OS_MAC
-
-#endif
 
 /* ------------------------------------------------------------------------------------------------------------
  * UI::PrivateData special handling */
@@ -188,7 +185,6 @@ PluginWindow&
 UI::PrivateData::createNextWindow(UI* const ui, uint width, uint height, const bool adjustForScaleFactor)
 {
     UI::PrivateData* const pData = s_nextPrivateData;
-   #if DISTRHO_PLUGIN_HAS_EXTERNAL_UI
     const double scaleFactor = d_isNotZero(pData->scaleFactor) ? pData->scaleFactor : getDesktopScaleFactor(pData->winId);
 
     if (adjustForScaleFactor && d_isNotZero(scaleFactor) && d_isNotEqual(scaleFactor, 1.0))
@@ -197,6 +193,7 @@ UI::PrivateData::createNextWindow(UI* const ui, uint width, uint height, const b
         height *= scaleFactor;
     }
 
+   #if DISTRHO_PLUGIN_HAS_EXTERNAL_UI
     pData->window = new PluginWindow(ui, pData->app);
     ExternalWindow::PrivateData ewData;
     ewData.parentWindowHandle = pData->winId;
@@ -207,14 +204,7 @@ UI::PrivateData::createNextWindow(UI* const ui, uint width, uint height, const b
     ewData.isStandalone = DISTRHO_UI_IS_STANDALONE;
     return ewData;
    #else
-    const double scaleFactor = pData->scaleFactor;
-
-    if (adjustForScaleFactor && d_isNotZero(scaleFactor) && d_isNotEqual(scaleFactor, 1.0))
-    {
-        width *= scaleFactor;
-        height *= scaleFactor;
-    }
-
+    d_stdout("createNextWindow %u %u %f %d", width, height, scaleFactor, adjustForScaleFactor);
     pData->window = new PluginWindow(ui, pData->app, pData->winId, width, height, scaleFactor);
 
     // If there are no callbacks, this is most likely a temporary window, so ignore idle callbacks
@@ -246,11 +236,7 @@ UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetA
               #else
                false
               #endif
-               )
-              #if DISTRHO_UI_WEB_VIEW
-               , true
-              #endif
-               ),
+               )),
       uiData(UI::PrivateData::s_nextPrivateData)
 {
 #if !DISTRHO_PLUGIN_HAS_EXTERNAL_UI
@@ -273,7 +259,37 @@ UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetA
 #endif
 
   #if DISTRHO_UI_WEB_VIEW
-    init(
+    String path(uiData->bundlePath);
+
+    if (path.isNotEmpty())
+    {
+        // FIXME get resource path
+       #ifdef DISTRHO_OS_MAC
+        path += "/Contents/Resources";
+       #endif
+    }
+    else
+    {
+        path = getBinaryFilename();
+        path.truncate(path.rfind(DISTRHO_OS_SEP));
+       #ifdef DISTRHO_OS_WINDOWS
+        // TODO make valid URL
+       #endif
+       #ifdef DISTRHO_OS_MAC
+        if (path.endsWith("/Contents/MacOS"))
+        {
+            path.truncate(path.length() - 5);
+            path += "Resources";
+        }
+        else
+       #endif
+        {
+            path += "/resources";
+        }
+        // TODO encode for HTML URL
+    }
+
+    init("file://" + path + "/index.html",
 "editParameter=function(index,started){window.webkit.messageHandlers.external.postMessage('editparam '+index+' '+(started ? 1 : 0))};"
 "setParameterValue=function(index,value){window.webkit.messageHandlers.external.postMessage('setparam '+index+' '+value)};"
    #if DISTRHO_PLUGIN_WANT_STATE

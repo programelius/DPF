@@ -51,6 +51,18 @@ TARGETS += au
 
 endif # HAVE_OPENGL
 
-all: $(TARGETS)
+ifeq ($(MACOS_APP_BUNDLE),true)
+jackfiles += $(TARGET_DIR)/$(NAME).app/Contents/Resources/index.html
+else
+jackfiles += $(TARGET_DIR)/resources/index.html
+endif
+
+vst3files += $(TARGET_DIR)/$(NAME).vst3/Contents/Resources/index.html
+
+all: $(TARGETS) $(jackfiles) $(vst3files)
+
+%/index.html: index.html
+	-$(SILENT)$(shell mkdir -p "$(shell dirname $(abspath $@))")
+	install -m 644 $< $(abspath $@)
 
 # --------------------------------------------------------------

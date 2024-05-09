@@ -43,20 +43,20 @@ public:
    /**
       Constructor for a WebViewWidget.
     */
-    explicit WebViewWidget(Window& windowToMapTo, bool initLater = false);
+    explicit WebViewWidget(Window& windowToMapTo);
 
    /**
       Destructor.
     */
     ~WebViewWidget() override;
 
+    void init(const char* url, const char* initialJS);
+
     // webview methods
     void evaluateJS(const char* js);
     void reload();
 
 protected:
-    void init(const char* initialJS);
-
     virtual void onMessage(char* message);
     void onResize(const ResizeEvent& ev) override;
 

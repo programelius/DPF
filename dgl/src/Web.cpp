@@ -28,18 +28,10 @@ START_NAMESPACE_DGL
 
 // --------------------------------------------------------------------------------------------------------------------
 
-WebViewWidget::WebViewWidget(Window& windowToMapTo, bool initLater)
+WebViewWidget::WebViewWidget(Window& windowToMapTo)
     : TopLevelWidget(windowToMapTo),
-      webview(initLater ? nullptr : webViewCreate(windowToMapTo.getNativeWindowHandle(),
-                                                  windowToMapTo.getWidth(),
-                                                  windowToMapTo.getHeight(),
-                                                  windowToMapTo.getScaleFactor(),
-                                                  WebViewOptions(_on_msg, this)))
+      webview(nullptr)
 {
-   #if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
-    if (webview != nullptr)
-        addIdleCallback(this, 1000 / 60);
-   #endif
 }
 
 WebViewWidget::~WebViewWidget()
@@ -53,13 +45,13 @@ WebViewWidget::~WebViewWidget()
     }
 }
 
-void WebViewWidget::init(const char* const initialJS)
+void WebViewWidget::init(const char* const url, const char* const initialJS)
 {
     DISTRHO_SAFE_ASSERT_RETURN(webview == nullptr,);
 
     WebViewOptions options(_on_msg, this);
     options.initialJS = initialJS;
-    webview = webViewCreate(getWindow().getNativeWindowHandle(), getWidth(), getHeight(), getScaleFactor(), options);
+    webview = webViewCreate(url, getWindow().getNativeWindowHandle(), getWidth(), getHeight(), getScaleFactor(), options);
 
     // FIXME implement initialJS
     if (webview != nullptr)

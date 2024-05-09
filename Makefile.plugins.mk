@@ -238,16 +238,6 @@ endif
 
 ifeq ($(UI_TYPE),web)
 DGL_FLAGS += -DDGL_WEB -DHAVE_DGL
-ifeq ($(MACOS),true)
-# BUILD_CXX_FLAGS += -std=gnu++17
-DGL_LIBS  += -framework WebKit
-else ifeq ($(WINDOWS),true)
-# DGL_FLAGS += -std=gnu++17
-DGL_LIBS  += -lole32 -luuid
-else
-DGL_FLAGS += -pthread
-DGL_LIBS  += -pthread -lrt
-endif
 DGL_LIB    = $(DGL_BUILD_DIR)/libdgl-web.a
 HAVE_DGL   = true
 USE_WEBVIEW = true
@@ -269,6 +259,19 @@ endif
 
 ifeq ($(HAVE_DGL)$(LINUX)$(USE_WEBVIEW),truetruetrue)
 DGL_LIB_SHARED = $(shell $(CC) -print-file-name=Scrt1.o)
+endif
+
+ifeq ($(USE_WEBVIEW),true)
+ifeq ($(MACOS),true)
+# BUILD_CXX_FLAGS += -std=gnu++17
+DGL_LIBS  += -framework WebKit
+else ifeq ($(WINDOWS),true)
+# DGL_FLAGS += -std=gnu++17
+DGL_LIBS  += -lole32 -luuid
+else
+DGL_FLAGS += -pthread
+DGL_LIBS  += -pthread -lrt
+endif
 endif
 
 DGL_LIBS += $(DGL_SYSTEM_LIBS) -lm

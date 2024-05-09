@@ -35,10 +35,10 @@ struct WebViewOptions {
       Position offset, for cases of mixing regular widgets with web views.
     */
     struct PositionOffset {
-      /** Horizontal offset */
+      /** Horizontal offset, with scale factor pre-applied */
       int x;
 
-      /** Vertical offset */
+      /** Vertical offset, with scale factor pre-applied */
       int y;
 
       /** Constructor for default values */
@@ -83,10 +83,11 @@ struct WebViewOptions {
   Provided metrics must not have scale factor pre-applied.
 
   @p windowId:    The native window id to attach this view to (X11 Window, HWND or NSView*)
-  @p scaleFactor: Scale factor to use (ignored on macOS)
+  @p scaleFactor: Scale factor in use
   @p options:     Extra options, optional
 */
-WebViewHandle webViewCreate(uintptr_t windowId,
+WebViewHandle webViewCreate(const char* url,
+                            uintptr_t windowId,
                             uint initialWidth,
                             uint initialHeight,
                             double scaleFactor,

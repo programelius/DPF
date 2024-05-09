@@ -406,7 +406,8 @@ static void getFilenameFromFunctionPtr(char filename[PATH_MAX], const void* cons
 
 // -----------------------------------------------------------------------------------------------------------
 
-WebViewHandle webViewCreate(const uintptr_t windowId,
+WebViewHandle webViewCreate(const char* const url,
+                            const uintptr_t windowId,
                             const uint initialWidth,
                             const uint initialHeight,
                             const double scaleFactor,
@@ -464,11 +465,6 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
 #elif WEB_VIEW_USING_MACOS_WEBKIT
     NSView* const view = reinterpret_cast<NSView*>(windowId);
 
-    const CGRect rect = CGRectMake(options.offset.x,
-                                   options.offset.y,
-                                   (initialWidth - options.offset.x),
-                                   (initialHeight - options.offset.y));
-
     WKPreferences* const prefs = [[WKPreferences alloc] init];
     [prefs setValue:@YES forKey:@"javaScriptCanAccessClipboard"];
     [prefs setValue:@YES forKey:@"DOMPasteAllowed"];
@@ -483,6 +479,11 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
     config.limitsNavigationsToAppBoundDomains = false;
     config.preferences = prefs;
 
+    const CGRect rect = CGRectMake(options.offset.x / scaleFactor,
+                                   options.offset.y / scaleFactor,
+                                   initialWidth,
+                                   initialHeight);
+
     WKWebView* const webview = [[WKWebView alloc] initWithFrame:rect
                                                   configuration:config];
     [webview setHidden:YES];
@@ -495,31 +496,61 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
     delegate->callbackPtr = options.callbackPtr;
     delegate->loaded = false;
 
-    webview.navigationDelegate = delegate;
-    webview.UIDelegate = delegate;
-
     if (WKUserContentController* const controller = [config userContentController])
     {
         [controller retain];
         [controller addScriptMessageHandler:delegate name:@"external"];
+    
+        if (options.initialJS != nullptr)
+        {
+            NSString* const nsInitialJS = [[NSString alloc] initWithBytes:options.initialJS
+                                                                   length:std::strlen(options.initialJS)
+                                                                 encoding:NSUTF8StringEncoding];
+
+            WKUserScript* const script = [[WKUserScript alloc] initWithSource:nsInitialJS
+                                                                injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                             forMainFrameOnly:true];
+
+            [controller addUserScript:script];
+
+            [script release];
+            [nsInitialJS release];
+        }
     }
 
-    const char* const url = "file:///Users/falktx/Source/DISTRHO/DPF/examples/WebMeters/index.html";
+    [webview setNavigationDelegate:delegate];
+    [webview setUIDelegate:delegate];
+
     NSString* const nsurl = [[NSString alloc] initWithBytes:url
                                                      length:std::strlen(url)
                                                    encoding:NSUTF8StringEncoding];
     NSURLRequest* const urlreq = [[NSURLRequest alloc] initWithURL: [NSURL URLWithString: nsurl]];
 
-    // [webview loadRequest:urlreq];
-    [webview loadFileRequest:urlreq
-     allowingReadAccessToURL:[NSURL URLWithString:@"file:///Users/falktx/Source/DISTRHO/DPF/examples/WebMeters/"]];
+    d_stdout("url is '%s'", url);
+    if (std::strncmp(url, "file://", 7) == 0)
+    {
+        const char* const lastsep = std::strrchr(url + 7, '/');
+
+        NSString* const urlpath = [[NSString alloc] initWithBytes:url
+                                                           length:(lastsep - url)
+                                                         encoding:NSUTF8StringEncoding];
+
+        [webview loadFileRequest:urlreq
+         allowingReadAccessToURL:[NSURL URLWithString:urlpath]];
+
+         [urlpath release];
+    }
+    else
+    {
+        [webview loadRequest:urlreq];
+    }
 
     d_stdout("waiting for load");
 
     if (! delegate->loaded)
     {
         NSAutoreleasePool* const pool = [[NSAutoreleasePool alloc] init];
-        NSDate* const date = [NSDate distantFuture];
+        NSDate* const date = [NSDate dateWithTimeIntervalSinceNow:0.05];
         NSEvent* event;
 
         while (! delegate->loaded)
@@ -702,7 +733,7 @@ void webViewDestroy(const WebViewHandle handle)
     [handle->webview setHidden:YES];
     [handle->webview removeFromSuperview];
     [handle->urlreq release];
-    [handle->delegate release];
+    // [handle->delegate release];
    #elif WEB_VIEW_USING_X11_IPC
     munmap(handle->shmptr, sizeof(WebViewRingBuffer));
     close(handle->shmfd);
@@ -804,16 +835,15 @@ void webViewResize(const WebViewHandle handle, const uint width, const uint heig
   #if WEB_VIEW_USING_CHOC
    #ifdef DISTRHO_OS_MAC
     NSView* const view = static_cast<NSView*>(handle->webview->getViewHandle());
-    [view setFrameSize:NSMakeSize(width, height)];
+    [view setFrameSize:NSMakeSize(width / scaleFactor, height / scaleFactor)];
    #else
     const HWND hwnd = static_cast<HWND>(handle->webview->getViewHandle());
     SetWindowPos(hwnd, nullptr, 0, 0,
-                 width * scaleFactor,
-                 height * scaleFactor,
+                 width, height,
                  SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
    #endif
   #elif WEB_VIEW_USING_MACOS_WEBKIT
-    [handle->webview setFrameSize:NSMakeSize(width, height)];
+    [handle->webview setFrameSize:NSMakeSize(width / scaleFactor, height / scaleFactor)];
   #elif WEB_VIEW_USING_X11_IPC
     if (handle->childWindow == 0)
     {

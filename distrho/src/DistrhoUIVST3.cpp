@@ -1636,6 +1636,7 @@ v3_plugin_view** dpf_plugin_view_create(v3_host_application** const host,
                                         void* const instancePointer,
                                         const double sampleRate)
 {
+    g_nextBundlePath = d_nextBundlePath;
     dpf_plugin_view** const viewptr = new dpf_plugin_view*;
     *viewptr = new dpf_plugin_view(host, instancePointer, sampleRate);
     return static_cast<v3_plugin_view**>(static_cast<void*>(viewptr));

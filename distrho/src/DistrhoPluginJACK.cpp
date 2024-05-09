@@ -980,15 +980,11 @@ int main(int argc, char* argv[])
         String tmpPath(getBinaryFilename());
         tmpPath.truncate(tmpPath.rfind(DISTRHO_OS_SEP));
       #if defined(DISTRHO_OS_MAC)
-        if (tmpPath.endsWith("/MacOS"))
+        if (tmpPath.endsWith("/Contents/MacOS"))
         {
-            tmpPath.truncate(tmpPath.rfind('/'));
-            if (tmpPath.endsWith("/Contents"))
-            {
-                tmpPath.truncate(tmpPath.rfind('/'));
-                bundlePath = tmpPath;
-                d_nextBundlePath = bundlePath.buffer();
-            }
+            tmpPath.truncate(tmpPath.length() - 15);
+            bundlePath = tmpPath;
+            d_nextBundlePath = bundlePath.buffer();
         }
       #else
        #ifdef DISTRHO_OS_WINDOWS
