@@ -313,10 +313,10 @@ struct WebViewData {
    #if WEB_VIEW_USING_CHOC
     choc::ui::WebView* const webview;
    #elif WEB_VIEW_USING_MACOS_WEBKIT
-    NSView* const view;
-    WKWebView* const webview;
-    NSURLRequest* const urlreq;
-    WEB_VIEW_DELEGATE_CLASS_NAME* const delegate;
+    NSView* view;
+    WKWebView* webview;
+    NSURLRequest* urlreq;
+    WEB_VIEW_DELEGATE_CLASS_NAME* delegate;
    #elif WEB_VIEW_USING_X11_IPC
     int shmfd = 0;
     char shmname[128] = {};
@@ -329,6 +329,8 @@ struct WebViewData {
     ::Window childWindow = 0;
     ::Window ourWindow = 0;
    #endif
+    WebViewData() {}
+    DISTRHO_DECLARE_NON_COPYABLE(WebViewData);
 };
 
 // -----------------------------------------------------------------------------------------------------------
@@ -549,7 +551,12 @@ WebViewHandle webViewCreate(const uintptr_t windowId,
     [config release];
     [prefs release];
 
-    return new WebViewData{options.callback, view, webview, urlreq, delegate};
+    WebViewData* const handle = new WebViewData;
+    handle->view = view;
+    handle->webview = webview;
+    handle->urlreq = urlreq;
+    handle->delegate = delegate;
+    return handle;
 #elif WEB_VIEW_USING_X11_IPC
     // get startup paths
     char ldlinux[PATH_MAX] = {};
@@ -759,7 +766,7 @@ void webViewEvaluateJS(const WebViewHandle handle, const char* const js)
     NSString* const nsjs = [[NSString alloc] initWithBytes:js
                                                     length:std::strlen(js)
                                                   encoding:NSUTF8StringEncoding];
-    [handle->webview evaluateJavaScript:nsjs completionHandler:nullptr];
+    [handle->webview evaluateJavaScript:nsjs completionHandler:nil];
     [nsjs release];
    #elif WEB_VIEW_USING_X11_IPC
     d_debug("evaluateJS '%s'", js);

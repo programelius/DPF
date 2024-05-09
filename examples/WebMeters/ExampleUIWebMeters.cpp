@@ -24,7 +24,7 @@ class ExampleUIMeters : public UI
 {
 public:
     ExampleUIMeters()
-        : UI(100, 500, false)
+        : UI()
     {
     }
 
