@@ -26,6 +26,19 @@ public:
     ExampleUIMeters()
         : UI()
     {
+        /*
+        const double scaleFactor = getScaleFactor();
+
+        if (d_isNotEqual(scaleFactor, 1.0))
+        {
+            setGeometryConstraints(DISTRHO_UI_DEFAULT_WIDTH * scaleFactor, DISTRHO_UI_DEFAULT_HEIGHT * scaleFactor);
+            setSize(DISTRHO_UI_DEFAULT_WIDTH * scaleFactor, DISTRHO_UI_DEFAULT_HEIGHT * scaleFactor);
+        }
+        else
+        {
+            setGeometryConstraints(DISTRHO_UI_DEFAULT_WIDTH, DISTRHO_UI_DEFAULT_HEIGHT);
+        }
+        */
     }
 
 private:

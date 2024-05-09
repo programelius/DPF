@@ -1,6 +1,6 @@
 /*
  * DISTRHO Plugin Framework (DPF)
- * Copyright (C) 2012-2023 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2024 Filipe Coelho <falktx@falktx.com>
  *
  * Permission to use, copy, modify, and/or distribute this software for any purpose with
  * or without fee is hereby granted, provided that the above copyright notice and this
@@ -230,14 +230,17 @@ UI::PrivateData::createNextWindow(UI* const ui, uint width, uint height, const b
 
 UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetAsMinimumSize)
     : UIWidget(UI::PrivateData::createNextWindow(this,
+               // width
               #ifdef DISTRHO_UI_DEFAULT_WIDTH
                width == 0 ? DISTRHO_UI_DEFAULT_WIDTH :
               #endif
                width,
+               // height
               #ifdef DISTRHO_UI_DEFAULT_HEIGHT
                height == 0 ? DISTRHO_UI_DEFAULT_HEIGHT :
               #endif
                height,
+               // adjustForScaleFactor
               #ifdef DISTRHO_UI_DEFAULT_WIDTH
                width == 0
               #else
@@ -271,6 +274,10 @@ UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetA
 "setParameterValue=function(index,value){window.webkit.messageHandlers.external.postMessage('setparam '+index+' '+value)};"
    #if DISTRHO_PLUGIN_WANT_STATE
 "setState=function(key,value){window.webkit.messageHandlers.external.postMessage('setstate '+key+' '+value)};"
+"requestStateFile=function(key){window.webkit.messageHandlers.external.postMessage('reqstatefile '+key)};"
+   #endif
+   #if DISTRHO_PLUGIN_WANT_MIDI_INPUT
+"sendNote=function(channel,note,velocity){window.webkit.messageHandlers.external.postMessage('sendnote '+channel+' '+note+' '+velocity)};"
    #endif
     );
   #endif
@@ -592,6 +599,35 @@ void UI::onMessage(char* const message)
         char* const value = sep + 1;
 
         setState(key, value);
+        return;
+    }
+
+    if (std::strncmp(message, "reqstatefile ", 13) == 0)
+    {
+        const char* const key = message + 13;
+        requestStateFile(key);
+        return;
+    }
+   #endif
+
+   #if DISTRHO_PLUGIN_WANT_MIDI_INPUT
+    if (std::strncmp(message, "sendnote ", 9) == 0)
+    {
+        const char* const strchannel = message + 9;
+        char* strnote = nullptr;
+        char* strvelocity = nullptr;
+        char* end = nullptr;
+
+        const ulong channel = std::strtoul(strchannel, &strnote, 10);
+        DISTRHO_SAFE_ASSERT_RETURN(strnote != nullptr && strchannel != strnote,);
+
+        const ulong note = std::strtoul(strnote, &strvelocity, 10);
+        DISTRHO_SAFE_ASSERT_RETURN(strvelocity != nullptr && strchannel != strvelocity,);
+
+        const ulong velocity = std::strtoul(strvelocity, &end, 10);
+        DISTRHO_SAFE_ASSERT_RETURN(end != nullptr && strvelocity != end,);
+
+        sendNote(channel, note, started);
         return;
     }
    #endif

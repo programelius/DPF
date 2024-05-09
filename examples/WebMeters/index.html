@@ -57,6 +57,7 @@
         repaint();
       }
       function parameterChanged(index, value) {
+        // console.log("paramChanged", index, value)
         switch (index) {
           case 0: // color
             updateColor(parseInt(Math.round(value)));

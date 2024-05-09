@@ -244,6 +244,8 @@ DGL_LIBS  += -framework WebKit
 else ifeq ($(WINDOWS),true)
 # DGL_FLAGS += -std=gnu++17
 DGL_LIBS  += -lole32 -luuid
+else
+DGL_LIBS  += -lrt
 endif
 DGL_LIB    = $(DGL_BUILD_DIR)/libdgl-web.a
 HAVE_DGL   = true
