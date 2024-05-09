@@ -43,7 +43,7 @@ public:
    /**
       Constructor for a WebViewWidget.
     */
-    explicit WebViewWidget(Window& windowToMapTo);
+    explicit WebViewWidget(Window& windowToMapTo, bool initLater = false);
 
    /**
       Destructor.
@@ -55,11 +55,13 @@ public:
     void reload();
 
 protected:
+    void init(const char* initialJS);
+
     virtual void onMessage(char* message);
     void onResize(const ResizeEvent& ev) override;
 
 private:
-    const DISTRHO_NAMESPACE::WebViewHandle webview;
+    DISTRHO_NAMESPACE::WebViewHandle webview;
     void idleCallback() override;
     void onDisplay() override {}
 

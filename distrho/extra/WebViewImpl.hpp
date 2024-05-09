@@ -46,6 +46,11 @@ struct WebViewOptions {
     } offset;
 
    /**
+      Set some JavaScript to evalute on every new page load.
+    */
+    const char* initialJS;
+
+   /**
       Message callback triggered from JavaScript code inside the WebView.
     */
     WebViewMessageCallback callback;
@@ -54,12 +59,14 @@ struct WebViewOptions {
     /** Constructor for default values */
     WebViewOptions()
       : offset(),
+        initialJS(nullptr),
         callback(nullptr),
         callbackPtr(nullptr) {}
 
     /** Constructor providing a callback */
     WebViewOptions(const WebViewMessageCallback cb, void* const ptr)
       : offset(),
+        initialJS(nullptr),
         callback(cb),
         callbackPtr(ptr) {}
 };

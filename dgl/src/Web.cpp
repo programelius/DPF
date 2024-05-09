@@ -26,15 +26,15 @@
 
 START_NAMESPACE_DGL
 
-// -----------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
-WebViewWidget::WebViewWidget(Window& windowToMapTo)
+WebViewWidget::WebViewWidget(Window& windowToMapTo, bool initLater)
     : TopLevelWidget(windowToMapTo),
-      webview(webViewCreate(windowToMapTo.getNativeWindowHandle(),
-                            windowToMapTo.getWidth(),
-                            windowToMapTo.getHeight(),
-                            windowToMapTo.getScaleFactor(),
-                            WebViewOptions(_on_msg, this)))
+      webview(initLater ? nullptr : webViewCreate(windowToMapTo.getNativeWindowHandle(),
+                                                  windowToMapTo.getWidth(),
+                                                  windowToMapTo.getHeight(),
+                                                  windowToMapTo.getScaleFactor(),
+                                                  WebViewOptions(_on_msg, this)))
 {
    #if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
     if (webview != nullptr)
@@ -51,6 +51,24 @@ WebViewWidget::~WebViewWidget()
        #endif
         webViewDestroy(webview);
     }
+}
+
+void WebViewWidget::init(const char* const initialJS)
+{
+    DISTRHO_SAFE_ASSERT_RETURN(webview == nullptr,);
+
+    WebViewOptions options(_on_msg, this);
+    options.initialJS = initialJS;
+    webview = webViewCreate(getWindow().getNativeWindowHandle(), getWidth(), getHeight(), getScaleFactor(), options);
+
+    // FIXME implement initialJS
+    if (webview != nullptr)
+        webViewEvaluateJS(webview, initialJS);
+
+   #if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
+    if (webview != nullptr)
+        addIdleCallback(this, 1000 / 60);
+   #endif
 }
 
 void WebViewWidget::evaluateJS(const char* const js)
@@ -87,7 +105,7 @@ void WebViewWidget::idleCallback()
     webViewIdle(webview);
 }
 
-// -----------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 static void notImplemented(const char* const name)
 {

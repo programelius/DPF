@@ -246,7 +246,11 @@ UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetA
               #else
                false
               #endif
-               )),
+               )
+              #if DISTRHO_UI_WEB_VIEW
+               , true
+              #endif
+               ),
       uiData(UI::PrivateData::s_nextPrivateData)
 {
 #if !DISTRHO_PLUGIN_HAS_EXTERNAL_UI
@@ -269,7 +273,7 @@ UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetA
 #endif
 
   #if DISTRHO_UI_WEB_VIEW
-    evaluateJS(
+    init(
 "editParameter=function(index,started){window.webkit.messageHandlers.external.postMessage('editparam '+index+' '+(started ? 1 : 0))};"
 "setParameterValue=function(index,value){window.webkit.messageHandlers.external.postMessage('setparam '+index+' '+value)};"
    #if DISTRHO_PLUGIN_WANT_STATE
