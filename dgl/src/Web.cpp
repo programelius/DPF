@@ -36,15 +36,19 @@ WebViewWidget::WebViewWidget(Window& windowToMapTo)
                             windowToMapTo.getScaleFactor(),
                             WebViewOptions(_on_msg, this)))
 {
+   #if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
     if (webview != nullptr)
         addIdleCallback(this, 1000 / 60);
+   #endif
 }
 
 WebViewWidget::~WebViewWidget()
 {
     if (webview != nullptr)
     {
+       #if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
         removeIdleCallback(this);
+       #endif
         webViewDestroy(webview);
     }
 }

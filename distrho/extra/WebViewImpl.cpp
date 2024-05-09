@@ -1465,15 +1465,15 @@ int dpf_webview_start(const int argc, char* argv[])
         // qt5webengine(winId, scaleFactor, url) ||
         // qt6webengine(winId, scaleFactor, url) ||
         gtk3(display, winId, x, y, width, height, scaleFactor, url, shmptr);
+
+        shmptr->valid = false;
+        pthread_join(thread, nullptr);
     }
-
-    shmptr->valid = false;
-    pthread_join(thread, nullptr);
-
-    XCloseDisplay(display);
 
     munmap(shmptr, sizeof(WebViewRingBuffer));
     close(shmfd);
+
+    XCloseDisplay(display);
 
     return 0;
 }
