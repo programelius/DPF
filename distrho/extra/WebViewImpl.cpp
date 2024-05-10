@@ -307,80 +307,6 @@ static bool webview_timedwait(ipc_sem_t* const sem)
    #endif
 }
 
-#endif
-
-struct WebViewData {
-   #if WEB_VIEW_USING_CHOC
-    choc::ui::WebView* const webview;
-   #elif WEB_VIEW_USING_MACOS_WEBKIT
-    NSView* view;
-    WKWebView* webview;
-    NSURLRequest* urlreq;
-    WEB_VIEW_DELEGATE_CLASS_NAME* delegate;
-   #elif WEB_VIEW_USING_X11_IPC
-    int shmfd = 0;
-    char shmname[128] = {};
-    WebViewRingBuffer* shmptr = nullptr;
-    WebViewMessageCallback callback = nullptr;
-    void* callbackPtr = nullptr;
-    ChildProcess p;
-    RingBufferControl<WebViewSharedBuffer> rbctrl, rbctrl2;
-    ::Display* display = nullptr;
-    ::Window childWindow = 0;
-    ::Window ourWindow = 0;
-   #endif
-    WebViewData() {}
-    DISTRHO_DECLARE_NON_COPYABLE(WebViewData);
-};
-
-// -----------------------------------------------------------------------------------------------------------
-
-#if WEB_VIEW_USING_CHOC
-static std::optional<choc::ui::WebView::Options::Resource> fetch_resource(const std::string& path)
-{
-    d_stdout("requested path %s", path.c_str());
-
-    if (path == "/")
-    {
-        const std::string html = R"PREFIX(
-<html>
-<head>
-    <style>
-    html, body { background: black; background-image: url(img.svg); }
-    </style>
-    <script>
-    function parameterChanged(index, value) {
-        console.log("parameterChanged received", index, value);
-    }
-    </script>
-</head>
-<body>
-hello world!
-</body>
-</html>
-)PREFIX";
-        const std::vector<uint8_t> data(html.begin(), html.end());
-        return choc::ui::WebView::Options::Resource{ data, "text/html" };
-    }
-    if (path == "/img.svg")
-    {
-        const std::string html = R"PREFIX(<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<!-- based on https://github.com/n0jo/rackwindows/blob/master/res/components/rw_knob_large_dark.svg -->
-<svg width="47px" height="47px" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
-    <g id="knobLDark">
-        <path id="path3832" d="M23.521,45.109c-7.674,0 -3.302,3.9 -10.224,0.498c-6.922,-3.403 -1.202,-2.341 -5.997,-8.501c-4.795,-6.159 -5.059,-0.201 -6.763,-7.827c-1.704,-7.625 1.043,-2.42 2.76,-10.046c1.718,-7.626 -2.998,-4.102 1.797,-10.221c4.795,-6.12 2.51,-0.673 9.432,-4.035c6.921,-3.363 1.321,-4.977 8.995,-4.977c7.675,0 2.087,1.574 8.996,4.977c6.909,3.402 4.636,-2.045 9.432,4.035c4.795,6.078 0.079,2.689 1.796,10.26c1.717,7.572 4.465,2.422 2.761,10.048c-1.704,7.625 -1.982,1.708 -6.763,7.827c-4.782,6.119 0.924,5.057 -5.998,8.46c-6.921,3.402 -2.549,-0.498 -10.224,-0.498Z" style="fill:#ccc;fill-rule:nonzero;"/>
-    </g>
-</svg>
-
-)PREFIX";
-        const std::vector<uint8_t> data(html.begin(), html.end());
-        return choc::ui::WebView::Options::Resource{ data, "image/svg+xml" };
-    }
-
-    return {};
-}
-#elif WEB_VIEW_USING_X11_IPC
 static void getFilenameFromFunctionPtr(char filename[PATH_MAX], const void* const ptr)
 {
     Dl_info info = {};
@@ -404,6 +330,33 @@ static void getFilenameFromFunctionPtr(char filename[PATH_MAX], const void* cons
 }
 #endif
 
+struct WebViewData {
+   #if WEB_VIEW_USING_CHOC
+    choc::ui::WebView* webview;
+    WebViewMessageCallback callback;
+    void* callbackPtr;
+    std::string url;
+   #elif WEB_VIEW_USING_MACOS_WEBKIT
+    NSView* view;
+    WKWebView* webview;
+    NSURLRequest* urlreq;
+    WEB_VIEW_DELEGATE_CLASS_NAME* delegate;
+   #elif WEB_VIEW_USING_X11_IPC
+    int shmfd = 0;
+    char shmname[128] = {};
+    WebViewRingBuffer* shmptr = nullptr;
+    WebViewMessageCallback callback = nullptr;
+    void* callbackPtr = nullptr;
+    ChildProcess p;
+    RingBufferControl<WebViewSharedBuffer> rbctrl, rbctrl2;
+    ::Display* display = nullptr;
+    ::Window childWindow = 0;
+    ::Window ourWindow = 0;
+   #endif
+    WebViewData() {}
+    DISTRHO_DECLARE_NON_COPYABLE(WebViewData);
+};
+
 // -----------------------------------------------------------------------------------------------------------
 
 WebViewHandle webViewCreate(const char* const url,
@@ -417,7 +370,6 @@ WebViewHandle webViewCreate(const char* const url,
     choc::ui::WebView::Options woptions;
     woptions.acceptsFirstMouseClick = true;
     woptions.enableDebugMode = true;
-    woptions.fetchResource = fetch_resource;
 
     std::unique_ptr<choc::ui::WebView> webview = std::make_unique<choc::ui::WebView>(woptions);
     DISTRHO_SAFE_ASSERT_RETURN(webview->loadedOK(), nullptr);
@@ -425,16 +377,25 @@ WebViewHandle webViewCreate(const char* const url,
     void* const handle = webview->getViewHandle();
     DISTRHO_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
 
-    choc::ui::WebView* const www = webview.get();
-    webview->bind("setParameterValue", [www](const choc::value::ValueView&) -> choc::value::Value {
-        static int pp = 0;
-        std::string toeval = "typeof(parameterChanged) === 'function' && parameterChanged(";
-        toeval += std::to_string(++pp);
-        toeval += ", 0.1)";
-        d_stdout("param received | %s", toeval.c_str());
-        www->evaluateJavascript(toeval);
-        return {};
-    });
+    if (const WebViewMessageCallback callback = options.callback)
+    {
+        webview->addInitScript("function postMessage(m) { js2cpp(m); }");
+
+        void* const callbackPtr = options.callbackPtr;
+        webview->bind("js2cpp", [callback, callbackPtr](const choc::value::ValueView& args) -> choc::value::Value {
+            callback(callbackPtr, args[0].toString().data());
+            return {};
+        });
+    }
+    else
+    {
+        webview->addInitScript("function postMessage(m) {}");
+    }
+
+    if (options.initialJS != nullptr)
+        webview->addInitScript(options.initialJS);
+
+    webview->navigate(url);
 
    #ifdef DISTRHO_OS_MAC
     NSView* const view = static_cast<NSView*>(handle);
@@ -461,7 +422,12 @@ WebViewHandle webViewCreate(const char* const url,
     ShowWindow(hwnd, SW_SHOW);
    #endif
 
-    return new WebViewData{options.callback, webview.release()};
+    WebViewData* const whandle = new WebViewData;
+    whandle->webview = webview.release();
+    whandle->callback = options.callback;
+    whandle->callbackPtr = options.callbackPtr;
+    whandle->url = url;
+    return whandle;
 #elif WEB_VIEW_USING_MACOS_WEBKIT
     NSView* const view = reinterpret_cast<NSView*>(windowId);
 
@@ -498,9 +464,18 @@ WebViewHandle webViewCreate(const char* const url,
 
     if (WKUserContentController* const controller = [config userContentController])
     {
-        [controller retain];
         [controller addScriptMessageHandler:delegate name:@"external"];
-    
+
+        WKUserScript* const mscript = [[WKUserScript alloc]
+            initWithSource:(options.callback != nullptr
+                ? @"function postMessage(m){window.webkit.messageHandlers.external.postMessage(m)}"
+                : @"function postMessage(m){}}")
+             injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+          forMainFrameOnly:true
+        ];
+        [controller addUserScript:mscript];
+        [mscript release];
+
         if (options.initialJS != nullptr)
         {
             NSString* const nsInitialJS = [[NSString alloc] initWithBytes:options.initialJS
@@ -742,6 +717,10 @@ void webViewDestroy(const WebViewHandle handle)
     [handle->urlreq release];
     // [handle->delegate release];
    #elif WEB_VIEW_USING_X11_IPC
+   #ifndef __linux__
+    sem_destroy(&handle->shmptr->client.sem);
+    sem_destroy(&handle->shmptr->server.sem);
+   #endif
     munmap(handle->shmptr, sizeof(WebViewRingBuffer));
     close(handle->shmfd);
     shm_unlink(handle->shmname);
@@ -800,6 +779,7 @@ void webViewIdle(const WebViewHandle handle)
 void webViewEvaluateJS(const WebViewHandle handle, const char* const js)
 {
    #if WEB_VIEW_USING_CHOC
+    handle->webview->evaluateJavascript(js);
    #elif WEB_VIEW_USING_MACOS_WEBKIT
     NSString* const nsjs = [[NSString alloc] initWithBytes:js
                                                     length:std::strlen(js)
@@ -824,6 +804,7 @@ void webViewEvaluateJS(const WebViewHandle handle, const char* const js)
 void webViewReload(const WebViewHandle handle)
 {
    #if WEB_VIEW_USING_CHOC
+    handle->webview->navigate(handle->url);
    #elif WEB_VIEW_USING_MACOS_WEBKIT
     [handle->webview loadRequest:handle->urlreq];
    #elif WEB_VIEW_USING_X11_IPC
@@ -1144,14 +1125,18 @@ static bool gtk3(Display* const display,
 
     if (WebKitUserContentManager* const manager = webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(webview)))
     {
+        g_signal_connect_data(manager, "script-message-received::external", G_CALLBACK(gtk3_js_cb), shmptr, nullptr, 0);
+        webkit_user_content_manager_register_script_message_handler(manager, "external");
+
+        WebKitUserScript* const mscript = webkit_user_script_new(
+            "function postMessage(m){window.webkit.messageHandlers.external.postMessage(m)}", 0, 0, nullptr, nullptr);
+        webkit_user_content_manager_add_script(manager, mscript);
+
         if (initialJS != nullptr)
         {
             WebKitUserScript* const script = webkit_user_script_new(initialJS, 0, 0, nullptr, nullptr);
             webkit_user_content_manager_add_script(manager, script);
         }
-
-        g_signal_connect_data(manager, "script-message-received::external", G_CALLBACK(gtk3_js_cb), shmptr, nullptr, 0);
-        webkit_user_content_manager_register_script_message_handler(manager, "external");
     }
 
     webkit_web_view_load_uri(WEBKIT_WEB_VIEW(webview), url);

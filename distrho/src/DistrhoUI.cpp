@@ -290,14 +290,14 @@ UI::UI(const uint width, const uint height, const bool automaticallyScaleAndSetA
     }
 
     init("file://" + path + "/index.html",
-"editParameter=function(index,started){window.webkit.messageHandlers.external.postMessage('editparam '+index+' '+(started ? 1 : 0))};"
-"setParameterValue=function(index,value){window.webkit.messageHandlers.external.postMessage('setparam '+index+' '+value)};"
+"editParameter = function(index, started){ postMessage('editparam '+index+' '+(started ? 1 : 0)) };"
+"setParameterValue = function(index, value){ postMessage('setparam '+index+' '+value) };"
    #if DISTRHO_PLUGIN_WANT_STATE
-"setState=function(key,value){window.webkit.messageHandlers.external.postMessage('setstate '+key+' '+value)};"
-"requestStateFile=function(key){window.webkit.messageHandlers.external.postMessage('reqstatefile '+key)};"
+"setState = function(key, value){ postMessage('setstate '+key+' '+value) };"
+"requestStateFile = function(key){ postMessage('reqstatefile '+key) };"
    #endif
    #if DISTRHO_PLUGIN_WANT_MIDI_INPUT
-"sendNote=function(channel,note,velocity){window.webkit.messageHandlers.external.postMessage('sendnote '+channel+' '+note+' '+velocity)};"
+"sendNote = function(channel, note, velocity){ postMessage('sendnote '+channel+' '+note+' '+velocity) };"
    #endif
     );
   #endif
@@ -652,7 +652,7 @@ void UI::onMessage(char* const message)
     }
    #endif
 
-    d_stderr("UI received unknown message %s", message);
+    d_stderr("UI received unknown message '%s'", message);
 }
 #endif
 
