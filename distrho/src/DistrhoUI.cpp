@@ -26,6 +26,13 @@
 # include <stdint.h>
 #endif
 
+#if defined(DISTRHO_OS_WINDOWS)
+# include <winsock2.h>
+# include <windows.h>
+#elif defined(HAVE_X11)
+# include <X11/Xresource.h>
+#endif
+
 #if DISTRHO_UI_FILE_BROWSER && !defined(DISTRHO_OS_MAC)
 # define DISTRHO_PUGL_NAMESPACE_MACRO_HELPER(NS, SEP, FUNCTION) NS ## SEP ## FUNCTION
 # define DISTRHO_PUGL_NAMESPACE_MACRO(NS, FUNCTION) DISTRHO_PUGL_NAMESPACE_MACRO_HELPER(NS, _, FUNCTION)
@@ -63,14 +70,7 @@ END_NAMESPACE_DISTRHO
 # include "../extra/WebViewImpl.cpp"
 #endif
 
-#if DISTRHO_PLUGIN_HAS_EXTERNAL_UI
-# if defined(DISTRHO_OS_WINDOWS)
-#  include <winsock2.h>
-#  include <windows.h>
-# elif defined(HAVE_X11)
-#  include <X11/Xresource.h>
-# endif
-#else
+#if ! DISTRHO_PLUGIN_HAS_EXTERNAL_UI
 # include "src/TopLevelWidgetPrivateData.hpp"
 # include "src/WindowPrivateData.hpp"
 #endif

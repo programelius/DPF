@@ -695,13 +695,20 @@ WebViewHandle webViewCreate(const char* const url,
         std::free(envp[i]);
     delete[] envp;
 
+    const size_t urllen = std::strlen(url);
+    const size_t initjslen = options.initialJS != nullptr ? std::strlen(options.initialJS) + 1 : 0;
     handle->rbctrl.writeUInt(kWebViewMessageInitData) &&
     handle->rbctrl.writeULong(windowId) &&
     handle->rbctrl.writeUInt(initialWidth) &&
     handle->rbctrl.writeUInt(initialHeight) &&
     handle->rbctrl.writeDouble(scaleFactor) &&
     handle->rbctrl.writeInt(options.offset.x) &&
-    handle->rbctrl.writeInt(options.offset.y);
+    handle->rbctrl.writeInt(options.offset.y) &&
+    handle->rbctrl.writeUInt(urllen) &&
+    handle->rbctrl.writeCustomData(url, urllen) &&
+    handle->rbctrl.writeUInt(initjslen) &&
+    initjslen != 0 &&
+    handle->rbctrl.writeCustomData(options.initialJS, initjslen);
     handle->rbctrl.commitWrite();
     webview_wake(&handle->shmptr->client.sem);
 
@@ -891,6 +898,7 @@ struct JSCValue;
 struct WebKitJavascriptResult;
 struct WebKitSettings;
 struct WebKitUserContentManager;
+struct WebKitUserScript;
 struct WebKitWebView;
 typedef int gboolean;
 
@@ -1015,6 +1023,7 @@ static bool gtk3(Display* const display,
                  const uint height,
                  double scaleFactor,
                  const char* const url,
+                 const char* const initialJS,
                  WebViewRingBuffer* const shmptr)
 {
     void* lib;
@@ -1039,7 +1048,9 @@ static bool gtk3(Display* const display,
     using webkit_settings_set_enable_write_console_messages_to_stdout_t = void (*)(WebKitSettings*, gboolean);
     using webkit_settings_set_hardware_acceleration_policy_t = void (*)(WebKitSettings*, int);
     using webkit_settings_set_javascript_can_access_clipboard_t = void (*)(WebKitSettings*, gboolean);
+    using webkit_user_content_manager_add_script_t = void (*)(WebKitUserContentManager*, WebKitUserScript*);
     using webkit_user_content_manager_register_script_message_handler_t = gboolean (*)(WebKitUserContentManager*, const char*);
+    using webkit_user_script_new_t = WebKitUserScript* (*)(const char*, int, int, const char* const*, const char* const*);
     using webkit_web_view_evaluate_javascript_t = void* (*)(WebKitWebView*, const char*, ssize_t, const char*, const char*, void*, void*, void*);
     using webkit_web_view_get_user_content_manager_t = WebKitUserContentManager* (*)(WebKitWebView*);
     using webkit_web_view_load_uri_t = void (*)(WebKitWebView*, const char*);
@@ -1064,7 +1075,9 @@ static bool gtk3(Display* const display,
     CSYM(webkit_settings_set_enable_write_console_messages_to_stdout_t, webkit_settings_set_enable_write_console_messages_to_stdout)
     CSYM(webkit_settings_set_hardware_acceleration_policy_t, webkit_settings_set_hardware_acceleration_policy)
     CSYM(webkit_settings_set_javascript_can_access_clipboard_t, webkit_settings_set_javascript_can_access_clipboard)
+    CSYM(webkit_user_content_manager_add_script_t, webkit_user_content_manager_add_script)
     CSYM(webkit_user_content_manager_register_script_message_handler_t, webkit_user_content_manager_register_script_message_handler)
+    CSYM(webkit_user_script_new_t, webkit_user_script_new)
     CSYM(webkit_web_view_get_user_content_manager_t, webkit_web_view_get_user_content_manager)
     CSYM(webkit_web_view_load_uri_t, webkit_web_view_load_uri)
     CSYM(webkit_web_view_new_with_settings_t, webkit_web_view_new_with_settings)
@@ -1131,6 +1144,12 @@ static bool gtk3(Display* const display,
 
     if (WebKitUserContentManager* const manager = webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(webview)))
     {
+        if (initialJS != nullptr)
+        {
+            WebKitUserScript* const script = webkit_user_script_new(initialJS, 0, 0, nullptr, nullptr);
+            webkit_user_content_manager_add_script(manager, script);
+        }
+
         g_signal_connect_data(manager, "script-message-received::external", G_CALLBACK(gtk3_js_cb), shmptr, nullptr, 0);
         webkit_user_content_manager_register_script_message_handler(manager, "external");
     }
@@ -1458,14 +1477,14 @@ int dpf_webview_start(const int argc, char* argv[])
     RingBufferControl<WebViewSharedBuffer> rbctrl;
     rbctrl.setRingBuffer(&shmptr->client, false);
 
-    const char* url = "file:///home/falktx/Source/DISTRHO/DPF/examples/WebMeters/index.html";
-
     // fetch initial data
     bool hasInitialData = false;
     Window winId = 0;
     uint width = 0, height = 0;
     double scaleFactor = 0;
     int x = 0, y = 0;
+    char* url = nullptr;
+    char* initJS = nullptr;
 
     while (shmptr->valid && webview_timedwait(&shmptr->client.sem))
     {
@@ -1480,6 +1499,16 @@ int dpf_webview_start(const int argc, char* argv[])
             scaleFactor = rbctrl.readDouble();
             x = rbctrl.readInt();
             y = rbctrl.readInt();
+
+            const uint urllen = rbctrl.readUInt();
+            url = static_cast<char*>(std::malloc(urllen));
+            rbctrl.readCustomData(url, urllen);
+
+            if (const uint initjslen = rbctrl.readUInt())
+            {
+                initJS = static_cast<char*>(std::malloc(initjslen));
+                rbctrl.readCustomData(initJS, initjslen);
+            }
         }
     }
 
@@ -1494,7 +1523,7 @@ int dpf_webview_start(const int argc, char* argv[])
 
         // qt5webengine(winId, scaleFactor, url) ||
         // qt6webengine(winId, scaleFactor, url) ||
-        gtk3(display, winId, x, y, width, height, scaleFactor, url, shmptr);
+        gtk3(display, winId, x, y, width, height, scaleFactor, url, initJS, shmptr);
 
         shmptr->valid = false;
         pthread_join(thread, nullptr);

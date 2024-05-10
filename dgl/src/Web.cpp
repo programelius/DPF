@@ -53,10 +53,6 @@ void WebViewWidget::init(const char* const url, const char* const initialJS)
     options.initialJS = initialJS;
     webview = webViewCreate(url, getWindow().getNativeWindowHandle(), getWidth(), getHeight(), getScaleFactor(), options);
 
-    // FIXME implement initialJS
-    if (webview != nullptr)
-        webViewEvaluateJS(webview, initialJS);
-
    #if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS))
     if (webview != nullptr)
         addIdleCallback(this, 1000 / 60);
