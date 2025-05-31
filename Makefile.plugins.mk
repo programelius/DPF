@@ -1,3 +1,10 @@
+# TOP OF Makefile.plugins.mk
+$(info >>> Makefile.plugins.mk: Top of file reached)
+$(info >>> Makefile.plugins.mk: DPF_PATH is [$(DPF_PATH)])
+$(info >>> Makefile.plugins.mk: USE_PYTHON is [$(USE_PYTHON)])
+$(info >>> Makefile.plugins.mk: OS is [$(OS)])
+$(info >>> Makefile.plugins.mk: PWD is [$(CURDIR)]) # Current working dir for make
+
 #!/usr/bin/make -f
 # Makefile for DPF #
 # ---------------- #

@@ -1,273 +1,211 @@
-/*
- * DISTRHO Plugin Framework (DPF)
- * Copyright (C) 2012-2021 Filipe Coelho <falktx@falktx.com>
- * Copyright (C) 2020 Takamitsu Endo
- *
- * Permission to use, copy, modify, and/or distribute this software for any purpose with
- * or without fee is hereby granted, provided that the above copyright notice and this
- * permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD
- * TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN
- * NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER
- * IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
- * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
-#include "DistrhoPlugin.hpp"
+// LoopareliusPlugin.cpp
+#include "LoopareliusPlugin.hpp"
+#include <iostream> 
+#include <cstring> 
+#include "DistrhoDetails.hpp" 
 
 START_NAMESPACE_DISTRHO
 
-// -----------------------------------------------------------------------------------------------------------
-
-static constexpr const float kMaxHoldTime = 1.0f;
-
-/**
-  Simple plugin to demonstrate how to modify input/output port type in DPF.
-  The plugin outputs sample & hold (S&H) value of input signal.
-  User can specify hold time via parameter and/or Hold Time CV port.
- */
-class ExamplePluginCVPort : public Plugin
+LoopareliusPlugin::LoopareliusPlugin()
+    : Plugin(paramCount, 0, 0),
+      retrospectiveBuffer(10.0), 
+      playbackActive(false),
+      variationPlayheadAbsoluteFrames(0),
+      currentVariationStartAbsoluteFrame(0),
+      currentVariationTotalFrames(0),
+      currentAbsoluteFrameCounter(0),
+      fCaptureLoopButtonState(0.0f)
 {
-public:
-    ExamplePluginCVPort()
-        : Plugin(1, 0, 0), // 1 parameters, 0 programs, 0 states
-          counter(0),
-          holdTime(0.0f),
-          holdValue(0.0f),
-          sampleRate(getSampleRate()) {}
-
-protected:
-   /* --------------------------------------------------------------------------------------------------------
-    * Information */
-
-   /**
-      Get the plugin label.
-      A plugin label follows the same rules as Parameter::symbol, with the exception that it can start with numbers.
-    */
-    const char* getLabel() const override
-    {
-        return "CVPort";
-    }
-
-   /**
-      Get an extensive comment/description about the plugin.
-    */
-    const char* getDescription() const override
-    {
-        return "Simple plugin with CVPort.\nThe plugin does sample & hold processing.";
-    }
-
-   /**
-      Get the plugin author/maker.
-    */
-    const char* getMaker() const override
-    {
-        return "DISTRHO";
-    }
-
-   /**
-      Get the plugin homepage.
-    */
-    const char* getHomePage() const override
-    {
-        return "https://github.com/DISTRHO/DPF";
-    }
-
-   /**
-      Get the plugin license name (a single line of text).
-      For commercial plugins this should return some short copyright information.
-    */
-    const char* getLicense() const override
-    {
-        return "ISC";
-    }
-
-   /**
-      Get the plugin version, in hexadecimal.
-    */
-    uint32_t getVersion() const override
-    {
-        return d_version(1, 0, 0);
-    }
-
-   /**
-      Get the plugin unique Id.
-      This value is used by LADSPA, DSSI and VST plugin formats.
-    */
-    int64_t getUniqueId() const override
-    {
-        return d_cconst('d', 'C', 'V', 'P');
-    }
-
-   /* --------------------------------------------------------------------------------------------------------
-    * Init */
-
-   /**
-      Initialize the audio port @a index.@n
-      This function will be called once, shortly after the plugin is created.
-    */
-    void initAudioPort(bool input, uint32_t index, AudioPort& port) override
-    {
-       /**
-          Note that index is independent for input and output.
-          In other words, input port index starts from 0 and output port index also starts from 0.
-        */
-        if (input)
-        {
-            switch (index)
-            {
-            case 0:
-                // Audio port doesn't need to specify port.hints.
-                port.name    = "Audio Input";
-                port.symbol  = "audio_in";
-                return;
-            case 1:
-                port.hints   = kAudioPortIsCV;
-                port.name    = "Hold Time";
-                port.symbol  = "hold_time";
-                return;
-            }
-            // Add more conditions here when increasing DISTRHO_PLUGIN_NUM_INPUTS.
-        }
-        else
-        {
-            switch (index)
-            {
-            case 0:
-                port.hints   = kAudioPortIsCV;
-                port.name    = "CV Output";
-                port.symbol  = "cv_out";
-                return;
-            }
-            // Add more conditions here when increasing DISTRHO_PLUGIN_NUM_OUTPUTS.
-        }
-
-        // It shouldn't reach here, but just in case if index is greater than 0.
-        Plugin::initAudioPort(input, index, port);
-    }
-
-   /**
-      Initialize the parameter @a index.
-      This function will be called once, shortly after the plugin is created.
-    */
-    void initParameter(uint32_t index, Parameter& parameter) override
-    {
-        if (index != 0)
-            return;
-
-        parameter.name       = "Hold Time";
-        parameter.symbol     = "hold_time";
-        parameter.hints      = kParameterIsAutomatable|kParameterIsLogarithmic;
-        parameter.ranges.min = 0.0f;
-        parameter.ranges.max = kMaxHoldTime;
-        parameter.ranges.def = 0.1f;
-    }
-
-   /* --------------------------------------------------------------------------------------------------------
-    * Internal data */
-
-   /**
-      Get the current value of a parameter.
-    */
-    float getParameterValue(uint32_t index) const override
-    {
-        if (index != 0)
-            return 0.0f;
-
-        return holdTime;
-    }
-
-   /**
-      Change a parameter value.
-    */
-    void setParameterValue(uint32_t index, float value) override
-    {
-        if (index != 0)
-            return;
-
-        holdTime = value;
-        counter = uint32_t(holdTime * sampleRate);
-    }
-
-   /* --------------------------------------------------------------------------------------------------------
-    * Process */
-
-   /**
-      Run/process function for plugins without MIDI input.
-    */
-    void run(const float** inputs, float** outputs, uint32_t frames) override
-    {
-        float cv, time;
-
-       /**
-        - inputs[0] is input audio port.
-        - inputs[1] is hold time CV port.
-        - outputs[0] is output CV port.
-        */
-       const float* const audioIn = inputs[0];
-       const float* const holdCV = inputs[1];
-       float* const cvOut = outputs[0];
-
-        for (uint32_t i = 0; i < frames; ++i)
-        {
-            if (counter == 0)
-            {
-                cv = holdCV[i] > 0.0f ? holdCV[i] : 0.0f;
-
-                time = holdTime + cv;
-                if (time > kMaxHoldTime)
-                    time = kMaxHoldTime;
-
-                counter = static_cast<uint32_t>(time * sampleRate + 0.5f);
-
-                holdValue = audioIn[i]; // Refresh hold value.
-            }
-            else
-            {
-                --counter;
-            }
-
-            cvOut[i] = holdValue;
-        }
-    }
-
-   /* --------------------------------------------------------------------------------------------------------
-    * Callbacks (optional) */
-
-   /**
-      Optional callback to inform the plugin about a sample rate change.@n
-      This function will only be called when the plugin is deactivated.
-    */
-    void sampleRateChanged(double newSampleRate) override
-    {
-        sampleRate = newSampleRate;
-        counter = static_cast<uint32_t>(holdTime * sampleRate + 0.5f);
-    }
-
-    // -------------------------------------------------------------------------------------------------------
-
-private:
-    uint32_t counter; // Hold time in samples. Used to count hold time.
-    float holdTime;  // Hold time in seconds.
-    float holdValue;
-    float sampleRate;
-
-   /**
-      Set our plugin class as non-copyable and add a leak detector just in case.
-    */
-    DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ExamplePluginCVPort)
-};
-
-/* ------------------------------------------------------------------------------------------------------------
- * Plugin entry point, called by DPF to create a new plugin instance. */
-
-Plugin* createPlugin()
-{
-    return new ExamplePluginCVPort();
+    std::cout << "[LoopareliusCpp] Plugin Constructed. Sample Rate: " << getSampleRate() << std::endl;
 }
 
-// -----------------------------------------------------------------------------------------------------------
+LoopareliusPlugin::~LoopareliusPlugin() {
+    std::cout << "[LoopareliusCpp] Plugin Destroyed." << std::endl;
+}
+
+const char* LoopareliusPlugin::getLabel() const { return DISTRHO_PLUGIN_NAME; }
+const char* LoopareliusPlugin::getMaker() const { return DISTRHO_PLUGIN_BRAND; }
+const char* LoopareliusPlugin::getLicense() const { return "ISC"; }
+uint32_t LoopareliusPlugin::getVersion() const { return DISTRHO_PLUGIN_VERSION; }
+int64_t LoopareliusPlugin::getUniqueId() const { return DISTRHO_PLUGIN_UNIQUE_ID; }
+
+void LoopareliusPlugin::initParameter(uint32_t index, Parameter& parameter) {
+    if (index >= paramCount) {
+        return;
+    }
+
+    switch (index) {
+        case paramCaptureLoop:
+            parameter.name = "Capture";
+            parameter.symbol = "capture";
+            // Assuming these are correct based on other DPF usage patterns.
+            // If these are still not found, we absolutely need to see the enum Hints
+            // definition from YOUR DistrhoPlugin.hpp
+            parameter.hints = kParameterIsButton | kParameterIsTrigger; 
+            parameter.ranges.def = 0.0f;
+            parameter.ranges.min = 0.0f;
+            parameter.ranges.max = 1.0f;
+            break;
+    }
+}
+
+float LoopareliusPlugin::getParameterValue(uint32_t index) const {
+    // ... (as before)
+    switch (index) {
+        case paramCaptureLoop:
+            return fCaptureLoopButtonState;
+    }
+    return 0.0f;
+}
+
+void LoopareliusPlugin::setParameterValue(uint32_t index, float value) {
+    // ... (as before)
+    switch (index) {
+        case paramCaptureLoop:
+            if (value > 0.5f && fCaptureLoopButtonState < 0.5f) { 
+                std::cout << "[LoopareliusCpp] Capture Button Parameter Changed!" << std::endl;
+                handleCaptureAction();
+            }
+            fCaptureLoopButtonState = value;
+            break;
+    }
+}
+
+void LoopareliusPlugin::activate() {
+    // ... (as before)
+    currentAbsoluteFrameCounter = 0; 
+    retrospectiveBuffer.clear();
+    capturedLoop.clear();
+    currentVariation.clear();
+    markovModels.clearModels();
+    playbackActive = false;
+    pendingHostNoteOns.clear();
+    fCaptureLoopButtonState = 0.0f;
+    std::cout << "[LoopareliusCpp] Plugin Activated. Sample Rate: " << getSampleRate() << std::endl;
+}
+
+void LoopareliusPlugin::deactivate() {
+    // ... (as before)
+    std::cout << "[LoopareliusCpp] Plugin Deactivated." << std::endl;
+}
+
+void LoopareliusPlugin::handleCaptureAction() {
+    // ... (as before)
+    std::cout << "[LoopareliusCpp] Handling capture action..." << std::endl;
+    capturedLoop = retrospectiveBuffer.getNormalizedBufferedEvents(); 
+    
+    if (capturedLoop.empty()) {
+        std::cout << "[LoopareliusCpp] Captured loop is empty." << std::endl;
+        playbackActive = false;
+        return;
+    }
+    std::cout << "[LoopareliusCpp] Captured " << capturedLoop.size() << " events for model." << std::endl;
+
+    markovModels.buildModels(capturedLoop);
+    generateNewVariationAndPreparePlayback();
+}
+
+void LoopareliusPlugin::generateNewVariationAndPreparePlayback() {
+    // ... (as before)
+    if (capturedLoop.empty()) {
+        std::cout << "[LoopareliusCpp] No captured loop to generate variation from." << std::endl;
+        playbackActive = false;
+        currentVariation.clear();
+        return;
+    }
+    currentVariation = markovModels.generateVariation(capturedLoop, capturedLoop.size());
+    if (currentVariation.empty()) {
+        std::cout << "[LoopareliusCpp] Generated variation is empty." << std::endl;
+        playbackActive = false;
+        return;
+    }
+    std::cout << "[LoopareliusCpp] Generated new variation with " << currentVariation.size() << " events." << std::endl;
+    currentVariationTotalFrames = 0;
+    if (!currentVariation.empty()) {
+        const CustomMidiEvent& lastEvent = currentVariation.back(); 
+        currentVariationTotalFrames = static_cast<uint32_t>((lastEvent.timestamp + lastEvent.duration) * getSampleRate());
+    }
+     if(currentVariationTotalFrames == 0 && !currentVariation.empty()) { 
+        currentVariationTotalFrames = static_cast<uint32_t>(currentVariation.front().duration * getSampleRate());
+    }
+    currentVariationStartAbsoluteFrame = currentAbsoluteFrameCounter; 
+    variationPlayheadAbsoluteFrames = currentVariationStartAbsoluteFrame; 
+    playbackActive = true;
+    std::cout << "[LoopareliusCpp] Playback prepared. Total var frames: " << currentVariationTotalFrames << std::endl;
+}
+
+void LoopareliusPlugin::run(const float** /*inputs*/, float** /*outputs*/, uint32_t nframes,
+                             const DISTRHO::MidiEvent* hostMidiEvents, uint32_t hostMidiEventCount)
+{
+    // ... (as before, with direct byte checks for MIDI status) ...
+    const double sampleRate = getSampleRate();
+    for (uint32_t i = 0; i < hostMidiEventCount; ++i) {
+        const DISTRHO::MidiEvent& hostEvent = hostMidiEvents[i];
+        uint64_t eventIncomingAbsoluteFrame = currentAbsoluteFrameCounter + hostEvent.frame;
+        const uint8_t statusByte = hostEvent.data[0];
+        const uint8_t statusNoChannel = statusByte & 0xF0;
+        const uint8_t channel = statusByte & 0x0F;
+        const uint8_t note = hostEvent.data[1];
+        const uint8_t velocityByte = hostEvent.data[2];
+        auto key = std::make_pair(static_cast<int>(note), static_cast<int>(channel));
+        if (statusNoChannel == 0x90 && velocityByte > 0) { 
+            pendingHostNoteOns[key] = std::make_pair(eventIncomingAbsoluteFrame, static_cast<int>(velocityByte));
+        } else if (statusNoChannel == 0x80 || (statusNoChannel == 0x90 && velocityByte == 0)) { 
+            auto it = pendingHostNoteOns.find(key);
+            if (it != pendingHostNoteOns.end()) {
+                uint64_t noteOnFrame = it->second.first;
+                int actualVelocity = it->second.second;
+                double durationSeconds = static_cast<double>(eventIncomingAbsoluteFrame - noteOnFrame) / sampleRate;
+                if (durationSeconds < 0.001) durationSeconds = 0.001;
+                retrospectiveBuffer.addEvent(
+                    CustomMidiEvent(static_cast<double>(noteOnFrame) / sampleRate, 
+                                   key.first, actualVelocity, durationSeconds, key.second)
+                );
+                pendingHostNoteOns.erase(it);
+            }
+        }
+    }
+    if (playbackActive && !currentVariation.empty()) {
+        uint64_t currentBlockEndAbsoluteFrame = currentAbsoluteFrameCounter + nframes;
+        for (const CustomMidiEvent& eventToPlay : currentVariation) { 
+            uint64_t noteOnAbsoluteFrameForVariation = currentVariationStartAbsoluteFrame + 
+                                                       static_cast<uint64_t>(eventToPlay.timestamp * sampleRate);
+            uint64_t noteOffAbsoluteFrameForVariation = noteOnAbsoluteFrameForVariation + 
+                                                        static_cast<uint64_t>(eventToPlay.duration * sampleRate);
+            DISTRHO::MidiEvent dpfEventToSend; 
+            dpfEventToSend.size = 3; 
+            if (dpfEventToSend.size < 4) dpfEventToSend.data[3] = 0;
+            if (noteOnAbsoluteFrameForVariation >= currentAbsoluteFrameCounter && 
+                noteOnAbsoluteFrameForVariation < currentBlockEndAbsoluteFrame) 
+            {
+                dpfEventToSend.frame = static_cast<uint32_t>(noteOnAbsoluteFrameForVariation - currentAbsoluteFrameCounter);
+                dpfEventToSend.data[0] = static_cast<uint8_t>(0x90 | eventToPlay.channel);
+                dpfEventToSend.data[1] = static_cast<uint8_t>(eventToPlay.noteNumber);
+                dpfEventToSend.data[2] = static_cast<uint8_t>(eventToPlay.velocity);
+                writeMidiEvent(dpfEventToSend); 
+            }
+            if (noteOffAbsoluteFrameForVariation >= currentAbsoluteFrameCounter && 
+                noteOffAbsoluteFrameForVariation < currentBlockEndAbsoluteFrame)
+            {
+                dpfEventToSend.frame = static_cast<uint32_t>(noteOffAbsoluteFrameForVariation - currentAbsoluteFrameCounter);
+                dpfEventToSend.data[0] = static_cast<uint8_t>(0x80 | eventToPlay.channel);
+                dpfEventToSend.data[1] = static_cast<uint8_t>(eventToPlay.noteNumber);
+                dpfEventToSend.data[2] = static_cast<uint8_t>(0); 
+                writeMidiEvent(dpfEventToSend);
+            }
+        }
+        if ( (currentAbsoluteFrameCounter + nframes) >= (currentVariationStartAbsoluteFrame + currentVariationTotalFrames) &&
+             currentVariationTotalFrames > 0 ) 
+        {
+             std::cout << "[LoopareliusCpp] Variation ended. Generating new one." << std::endl;
+             generateNewVariationAndPreparePlayback(); 
+        }
+    }
+    currentAbsoluteFrameCounter += nframes;
+}
+
+Plugin* createPlugin() {
+    return new LoopareliusPlugin();
+}
 
 END_NAMESPACE_DISTRHO

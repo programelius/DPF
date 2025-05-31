@@ -261,7 +261,7 @@ static_assert(sizeof(STRINGIFY(DISTRHO_PLUGIN_BRAND_ID)) == 5, "The macro DISTRH
 #endif
 
 #ifdef DISTRHO_PLUGIN_UNIQUE_ID
-//static_assert(sizeof(STRINGIFY(DISTRHO_PLUGIN_UNIQUE_ID)) == 5, "The macro DISTRHO_PLUGIN_UNIQUE_ID has incorrect length");
+static_assert(sizeof(STRINGIFY(DISTRHO_PLUGIN_UNIQUE_ID)) == 5, "The macro DISTRHO_PLUGIN_UNIQUE_ID has incorrect length");
 #endif
 
 #endif
